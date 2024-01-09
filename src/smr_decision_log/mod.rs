@@ -9,23 +9,20 @@ use atlas_common::node_id::NodeId;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_common::serialization_helper::SerType;
 use atlas_communication::message::StoredMessage;
+use atlas_core::messages::ClientRqInfo;
+use atlas_core::ordering_protocol::{Decision, DecisionMetadata, ProtocolMessage, ShareableConsensusMessage, ShareableMessage};
+use atlas_core::ordering_protocol::loggable::{LoggableOrderProtocol, PersistentOrderProtocolTypes, PProof};
+use atlas_core::ordering_protocol::networking::serialize::OrderingProtocolMessage;
 use atlas_smr_application::app::UpdateBatch;
 use atlas_smr_application::ExecutorHandle;
 use atlas_smr_application::serialize::ApplicationData;
-
-use crate::messages::ClientRqInfo;
-use crate::ordering_protocol::{Decision, DecisionMetadata, OrderingProtocol, ProtocolMessage};
-use crate::ordering_protocol::loggable::{LoggableOrderProtocol, PersistentOrderProtocolTypes, PProof};
-use crate::ordering_protocol::networking::serialize::OrderingProtocolMessage;
+use crate::networking::serialize::DecisionLogMessage;
 use crate::persistent_log::PersistentDecisionLog;
-use crate::smr::networking::serialize::DecisionLogMessage;
 
 pub type DecLog<RQ, OP, POP, LS> = <LS as DecisionLogMessage<RQ, OP, POP>>::DecLog;
 pub type DecLogMetadata<RQ, OP, POP, LS> = <LS as DecisionLogMessage<RQ, OP, POP>>::DecLogMetadata;
 pub type DecLogPart<RQ, OP, POP, LS> = <LS as DecisionLogMessage<RQ, OP, POP>>::DecLogPart;
 
-pub type ShareableConsensusMessage<RQ, OP> = Arc<ReadOnly<StoredMessage<<OP as OrderingProtocolMessage<RQ>>::ProtocolMessage>>>;
-pub type ShareableMessage<P> = Arc<ReadOnly<StoredMessage<P>>>;
 
 /// The record of the decision that has been made.
 #[derive(Clone)]

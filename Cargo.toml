@@ -1,9 +1,18 @@
 [package]
-name = "Atlas-SMR-Core"
+name = "atlas-smr-core"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-atlas_common = { path = "../Atlas-Common" }
+anyhow = "1.0"
+thiserror = "1.0"
+atlas-common = { path = "../Atlas-Common" }
+atlas-communication = { path = "../Atlas-Communication" }
+atlas-core = { path = "../Atlas-Core" }
+atlas-smr-application = { path = "../Atlas-SMR-Application" }
+
+atlas-metrics = { path = "../Atlas-Metrics" }
+serde = { version = "*", optional = true }
+log = "0.4.17"

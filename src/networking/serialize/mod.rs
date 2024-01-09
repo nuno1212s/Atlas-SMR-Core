@@ -6,9 +6,9 @@ use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_smr_application::serialize::ApplicationData;
 use atlas_common::error::*;
 use atlas_common::serialization_helper::SerType;
-use crate::ordering_protocol::networking::serialize::OrderingProtocolMessage;
-use crate::ordering_protocol::networking::signature_ver::OrderProtocolSignatureVerificationHelper;
-use crate::ordering_protocol::loggable::PersistentOrderProtocolTypes;
+use atlas_core::ordering_protocol::loggable::PersistentOrderProtocolTypes;
+use atlas_core::ordering_protocol::networking::serialize::OrderingProtocolMessage;
+use atlas_core::ordering_protocol::networking::signature_ver::OrderProtocolSignatureVerificationHelper;
 
 pub trait OrderProtocolLog: Orderable {
     // At the moment I only need orderable, but I might need more in the future
