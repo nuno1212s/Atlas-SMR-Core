@@ -1,25 +1,28 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
+
 use atlas_communication::message::Header;
 use atlas_communication::message_signing::NetworkMessageSignatureVerifier;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_communication::serialize::Serializable;
-use atlas_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
 use atlas_core::serialize::NoProtocol;
+use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
-use crate::message::SystemMessage;
+
+use crate::message::{ SystemMessage};
 use crate::networking::signature_ver::SigVerifier;
+use crate::SMRReq;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::signature_ver::StateTransferVerificationHelper;
 
 /// The type that encapsulates all the serializing, so we don't have to constantly use SystemMessage
-pub struct Service<D: ApplicationData, P: OrderingProtocolMessage<D::Request>,
-    S: StateTransferMessage, L: LogTransferMessage<D::Request, P>, VT: ViewTransferProtocolMessage>(PhantomData<fn() -> (D, P, S, L, VT)>);
+pub struct Service<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+    S: StateTransferMessage, L: LogTransferMessage<SMRReq<D>, P>, VT: ViewTransferProtocolMessage>(PhantomData<fn() -> (D, P, S, L, VT)>);
 
-pub type ServiceMessage<D: ApplicationData, P: OrderingProtocolMessage<D::Request>,
-    S: StateTransferMessage, L: LogTransferMessage<D::Request, P>,
+pub type ServiceMessage<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+    S: StateTransferMessage, L: LogTransferMessage<SMRReq<D>, P>,
     VT: ViewTransferProtocolMessage> = <Service<D, P, S, L, VT> as Serializable>::Message;
 
 pub type ClientServiceMsg<D: ApplicationData> = Service<D, NoProtocol, NoProtocol, NoProtocol, NoProtocol>;
@@ -35,10 +38,11 @@ pub trait VerificationWrapper<M, D> where D: ApplicationData {
 
 impl<D, P, S, L, VT> Serializable for Service<D, P, S, L, VT> where
     D: ApplicationData + 'static,
-    P: OrderingProtocolMessage<D::Request> + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
     S: StateTransferMessage + 'static,
-    L: LogTransferMessage<D::Request, P> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
     VT: ViewTransferProtocolMessage + 'static {
+    
     type Message = SystemMessage<D, P::ProtocolMessage, S::StateTransferMessage, L::LogTransferMessage, VT::ProtocolMessage>;
 
     fn verify_message_internal<NI, SV>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message) -> atlas_common::error::Result<()>

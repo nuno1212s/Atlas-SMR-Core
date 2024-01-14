@@ -12,28 +12,29 @@ use atlas_communication::message::{SerializedMessage, StoredMessage, StoredSeria
 use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_communication::reconfiguration_node::{NetworkInformationProvider, ReconfigurationNode};
 use atlas_communication::serialize::Serializable;
-use atlas_core::log_transfer::networking::LogTransferSendNode;
-use atlas_core::log_transfer::networking::serialize::LogTransferMessage;
-use atlas_core::messages::ForwardedRequestsMessage;
+use atlas_core::messages::{ForwardedRequestsMessage, RequestMessage};
 use atlas_core::ordering_protocol::networking::{OrderProtocolSendNode, ViewTransferProtocolSendNode};
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
+use atlas_logging_core::log_transfer::networking::LogTransferSendNode;
+use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
 use atlas_smr_application::serialize::ApplicationData;
 use crate::exec::ReplyNode;
 use crate::message::SystemMessage;
 use crate::serialize::{Service, ServiceMessage};
+use crate::{SMRReply, SMRReq};
 
 ///TODO: I wound up creating a whole new layer of abstractions, but I'm not sure they are necessary. I did it
 /// To allow for the protocols to all use NT, as if I didn't, a lot of things would have to change in how the generic NT was
 /// going to be passed around the protocols. I'm not sure if this is the best way to do it, but it works for now.
 pub trait SMRNetworkNode<NI, RM, D, P, S, L, VT>:
 FullNetworkNode<NI, RM, Service<D, P, S, L, VT>> +
-ReplyNode<D::Reply> + StateTransferSendNode<S> + OrderProtocolSendNode<D::Request, P>
-+ LogTransferSendNode<D::Request, P, L> + ViewTransferProtocolSendNode<VT>
+ReplyNode<SMRReply<D>> + StateTransferSendNode<S> + OrderProtocolSendNode<SMRReq<D>, P>
++ LogTransferSendNode<SMRReq<D>, P, L> + ViewTransferProtocolSendNode<VT>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider,
@@ -42,8 +43,8 @@ ReplyNode<D::Reply> + StateTransferSendNode<S> + OrderProtocolSendNode<D::Reques
 #[derive(Clone)]
 pub struct NodeWrap<NT, D, P, S, L, VT, NI, RM>(pub NT, PhantomData<fn() -> (D, P, S, L, VT, NI, RM)>)
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,
@@ -52,8 +53,8 @@ pub struct NodeWrap<NT, D, P, S, L, VT, NI, RM>(pub NT, PhantomData<fn() -> (D, 
 
 impl<NT, D, P, S, L, VT, NI, RM> NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,
@@ -66,8 +67,8 @@ impl<NT, D, P, S, L, VT, NI, RM> NodeWrap<NT, D, P, S, L, VT, NI, RM>
 
 impl<NT, D, P, S, L, VT, NI, RM> Deref for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,
@@ -82,8 +83,8 @@ impl<NT, D, P, S, L, VT, NI, RM> Deref for NodeWrap<NT, D, P, S, L, VT, NI, RM>
 
 impl<NT, D, P, S, L, VT, NI, RM> NetworkNode for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: 'static + ApplicationData,
-          P: 'static + OrderingProtocolMessage<D::Request>,
-          L: 'static + LogTransferMessage<D::Request, P>,
+          P: 'static + OrderingProtocolMessage<SMRReq<D>>,
+          L: 'static + LogTransferMessage<SMRReq<D>, P>,
           VT: ViewTransferProtocolMessage + 'static,
           NI: 'static + NetworkInformationProvider,
           NT: 'static + FullNetworkNode<NI, RM, Service<D, P, S, L, VT>>,
@@ -106,8 +107,8 @@ impl<NT, D, P, S, L, VT, NI, RM> NetworkNode for NodeWrap<NT, D, P, S, L, VT, NI
 
 impl<NT, D, P, S, L, VT, NI, RM> ProtocolNetworkNode<Service<D, P, S, L, VT>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,
@@ -150,8 +151,8 @@ impl<NT, D, P, S, L, VT, NI, RM> ReconfigurationNode<RM> for NodeWrap<NT, D, P, 
           RM: Serializable + 'static,
           NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>> + 'static,
           D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           RM: Serializable + 'static, {
@@ -178,8 +179,8 @@ impl<NT, D, P, S, L, VT, NI, RM> ReconfigurationNode<RM> for NodeWrap<NT, D, P, 
 impl<NT, D, P, S, L, VT, NI, RM> FullNetworkNode<NI, RM, Service<D, P, S, L, VT>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where
         D: ApplicationData + 'static,
-        P: OrderingProtocolMessage<D::Request> + 'static,
-        L: LogTransferMessage<D::Request, P> + 'static,
+        P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+        L: LogTransferMessage<SMRReq<D>, P> + 'static,
         S: StateTransferMessage + 'static,
         VT: ViewTransferProtocolMessage + 'static,
         RM: Serializable + 'static,
@@ -193,11 +194,11 @@ impl<NT, D, P, S, L, VT, NI, RM> FullNetworkNode<NI, RM, Service<D, P, S, L, VT>
 }
 
 
-impl<NT, D, P, S, L, VT, NI, RM> LogTransferSendNode<D::Request, P, L> for NodeWrap<NT, D, P, S, L,VT, NI, RM>
+impl<NT, D, P, S, L, VT, NI, RM> LogTransferSendNode<SMRReq<D>, P, L> for NodeWrap<NT, D, P, S, L,VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           RM: Serializable + 'static,
           NI: NetworkInformationProvider + 'static,
@@ -263,10 +264,10 @@ impl<NT, D, P, S, L, VT, NI, RM> LogTransferSendNode<D::Request, P, L> for NodeW
 }
 
 
-impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<D::Request, P> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
+impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<SMRReq<D>, P> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           RM: Serializable + 'static,
@@ -283,7 +284,7 @@ impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<D::Request, P> for NodeWr
         NT::network_info_provider(&self.0)
     }
 
-    fn forward_requests(&self, fwd_requests: ForwardedRequestsMessage<D::Request>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+    fn forward_requests(&self, fwd_requests: ForwardedRequestsMessage<SMRReq<D>>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         self.0.broadcast_signed(SystemMessage::ForwardedRequestMessage(fwd_requests), targets)
     }
 
@@ -346,8 +347,8 @@ impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<D::Request, P> for NodeWr
 
 impl<NT, D, P, S, L, VT, RM, NI> ViewTransferProtocolSendNode<VT> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           RM: Serializable + 'static,
@@ -423,8 +424,8 @@ impl<NT, D, P, S, L, VT, RM, NI> ViewTransferProtocolSendNode<VT> for NodeWrap<N
 
 impl<NT, D, P, S, L, VT, NI, RM> StateTransferSendNode<S> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           RM: Serializable + 'static,
@@ -488,8 +489,8 @@ impl<NT, D, P, S, L, VT, NI, RM> StateTransferSendNode<S> for NodeWrap<NT, D, P,
 
 impl<NT, NI, RM, D, P, S, L, VT> SMRNetworkNode<NI, RM, D, P, S, L, VT> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,

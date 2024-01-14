@@ -1,29 +1,45 @@
 use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
+
 use serde::{Deserialize, Serialize};
+
 use atlas_communication::message::StoredMessage;
-use atlas_core::messages::{ForwardedProtocolMessage, ForwardedRequestsMessage, LogTransfer, Protocol, ReplyMessage, RequestMessage, VTMessage};
+use atlas_core::messages::{ForwardedProtocolMessage, ForwardedRequestsMessage, Protocol, VTMessage};
+use atlas_logging_core::log_transfer::networking::LogTransfer;
 use atlas_smr_application::serialize::ApplicationData;
 
+use crate::{SMRReply, SMRReq};
+
+/// The message enum that encapsulates all messages that are sent in the SMR protocol
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
     ///An ordered request
-    OrderedRequest(RequestMessage<D::Request>),
+    /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    OrderedRequest(SMRReq<D>),
     ///An unordered request
-    UnorderedRequest(RequestMessage<D::Request>),
+    /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    UnorderedRequest(SMRReq<D>),
     ///A reply to an ordered request
-    OrderedReply(ReplyMessage<D::Reply>),
+    /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize= "D::Reply: Serialize"))]
+    OrderedReply(SMRReply<D>),
     ///A reply to an unordered request
-    UnorderedReply(ReplyMessage<D::Reply>),
+    /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize= "D::Reply: Serialize"))]
+    UnorderedReply(SMRReply<D>),
     ///Requests forwarded from other peers
-    ForwardedRequestMessage(ForwardedRequestsMessage<D::Request>),
+    /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    ForwardedRequestMessage(ForwardedRequestsMessage<SMRReq<D>>),
     ///A message related to the protocol
     ProtocolMessage(Protocol<P>),
     ///A protocol message that has been forwarded by another peer
     ForwardedProtocolMessage(ForwardedProtocolMessage<P>),
     ///A state transfer protocol message
     StateTransferMessage(StateTransfer<ST>),
-    ///A Log trasnfer protocol message
+    ///A Log transfer protocol message
     LogTransferMessage(LogTransfer<LT>),
     /// View Transfer protocol message
     ViewTransferMessage(VTMessage<VT>),
@@ -166,8 +182,6 @@ impl<D, P, ST, LT, VT> Debug for SystemMessage<D, P, ST, LT, VT>
     }
 }
 
-
-
 ///
 /// State transfer messages
 ///
@@ -196,3 +210,5 @@ impl<P> Deref for StateTransfer<P> {
         &self.payload
     }
 }
+
+

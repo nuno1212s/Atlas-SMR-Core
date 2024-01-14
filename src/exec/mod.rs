@@ -3,14 +3,22 @@ use atlas_common::node_id::NodeId;
 use atlas_communication::FullNetworkNode;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_communication::serialize::Serializable;
-use atlas_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_core::messages::ReplyMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
+use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
-use crate::message::SystemMessage;
 use crate::networking::NodeWrap;
 use crate::serialize::Service;
+use crate::{SMRReply, SMRReq};
+use crate::message::SystemMessage;
+
+
+pub trait StateExecutorTrait {
+
+    fn start_polling_state(&self) -> Result<()>;
+
+}
 
 pub enum ReplyType {
     Ordered,
@@ -20,19 +28,19 @@ pub enum ReplyType {
 /// Trait for a network node capable of sending replies to clients
 pub trait ReplyNode<RP>: Send + Sync {
 
-    fn send(&self, reply_type: ReplyType, reply: ReplyMessage<RP>, target: NodeId, flush: bool) -> Result<()>;
+    fn send(&self, reply_type: ReplyType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
 
-    fn send_signed(&self, reply_type: ReplyType, reply: ReplyMessage<RP>, target: NodeId, flush: bool) -> Result<()>;
+    fn send_signed(&self, reply_type: ReplyType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
 
-    fn broadcast(&self, reply_type: ReplyType, reply: ReplyMessage<RP>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
+    fn broadcast(&self, reply_type: ReplyType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
 
-    fn broadcast_signed(&self, reply_type: ReplyType, reply: ReplyMessage<RP>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
+    fn broadcast_signed(&self, reply_type: ReplyType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
 }
 
-impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<D::Reply> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
+impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<SMRReply<D>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<D::Request> + 'static,
-          L: LogTransferMessage<D::Request, P> + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
           S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,

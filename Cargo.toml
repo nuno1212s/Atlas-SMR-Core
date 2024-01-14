@@ -5,12 +5,17 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+
+serialize_serde = ["serde", "atlas-common/serialize_serde", "atlas-core/serialize_serde", "atlas-logging-core/serialize_serde"]
+
 [dependencies]
 anyhow = "1.0"
 thiserror = "1.0"
 atlas-common = { path = "../Atlas-Common" }
 atlas-communication = { path = "../Atlas-Communication" }
 atlas-core = { path = "../Atlas-Core" }
+atlas-logging-core = { path = "../Atlas-Logging-Core" }
 atlas-smr-application = { path = "../Atlas-SMR-Application" }
 
 atlas-metrics = { path = "../Atlas-Metrics" }
