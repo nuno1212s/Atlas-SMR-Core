@@ -12,4 +12,5 @@ pub mod state_transfer;
 pub mod serialize;
 
 pub type SMRReq<D: ApplicationData> = RequestMessage<D::Request>;
+pub type SMRRawReq<R> = RequestMessage<R>;
 pub type SMRReply<D: ApplicationData> = ReplyMessage<D::Reply>;
