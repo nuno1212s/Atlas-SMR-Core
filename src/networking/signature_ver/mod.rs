@@ -11,7 +11,7 @@ use atlas_logging_core::log_transfer::networking::signature_ver::LogTransferVeri
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::signature_ver::StateTransferVerificationHelper;
 use atlas_smr_application::serialize::ApplicationData;
-use crate::message::SystemMessage;
+use crate::message::{OrderableMessage, SystemMessage};
 use crate::serialize::Service;
 use crate::SMRReq;
 
@@ -36,7 +36,8 @@ impl<SV, NI, D, P, S, L, VT> OrderProtocolSignatureVerificationHelper<RequestMes
           SV: NetworkMessageSignatureVerifier<Service<D, P, S, L, VT>, NI>
 {
     fn verify_request_message(network_info: &Arc<NI>, header: &Header, request: RequestMessage<D::Request>) -> atlas_common::error::Result<RequestMessage<D::Request>> {
-        let message = SystemMessage::<D, P::ProtocolMessage, S::StateTransferMessage, L::LogTransferMessage, VT::ProtocolMessage>::OrderedRequest(request);
+        
+        let message = OrderableMessage::<D>::OrderedRequest(request);
 
         let message = SV::verify_signature(network_info, header, message)?;
 

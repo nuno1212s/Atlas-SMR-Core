@@ -11,7 +11,7 @@ use atlas_core::serialize::NoProtocol;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
 
-use crate::message::{ SystemMessage};
+use crate::message::{OrderableMessage, SystemMessage};
 use crate::networking::signature_ver::SigVerifier;
 use crate::SMRReq;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
@@ -25,6 +25,10 @@ pub type ServiceMessage<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>
     S: StateTransferMessage, L: LogTransferMessage<SMRReq<D>, P>,
     VT: ViewTransferProtocolMessage> = <Service<D, P, S, L, VT> as Serializable>::Message;
 
+pub struct ClientServ<D: ApplicationData>(PhantomData<fn() -> (D)>);
+
+pub type ClientServMessage<D: ApplicationData> = <ClientServ<D> as Serializable>::Message;
+
 pub type ClientServiceMsg<D: ApplicationData> = Service<D, NoProtocol, NoProtocol, NoProtocol, NoProtocol>;
 
 pub type ClientMessage<D: ApplicationData> = <ClientServiceMsg<D> as Serializable>::Message;
@@ -34,6 +38,18 @@ pub trait VerificationWrapper<M, D> where D: ApplicationData {
     fn wrap_request(header: Header, request: RequestMessage<D::Request>) -> M;
 
     fn wrap_reply(header: Header, reply: D::Reply) -> M;
+}
+
+impl<D> Serializable for ClientServ<D>
+    where D: ApplicationData {
+
+    type Message = OrderableMessage<D>;
+
+    fn verify_message_internal<NI, SV>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message) -> atlas_common::error::Result<()> where NI: NetworkInformationProvider + 'static, SV: NetworkMessageSignatureVerifier<Self, NI>, Self: Sized {
+        /// Client messages don't contain redirections or forwardings, so if the global signature checks out, we
+        /// are guaranteed to be in business
+        Ok(())
+    }
 }
 
 impl<D, P, S, L, VT> Serializable for Service<D, P, S, L, VT> where
@@ -67,18 +83,6 @@ impl<D, P, S, L, VT> Serializable for Service<D, P, S, L, VT> where
             SystemMessage::ViewTransferMessage(view_transfer) => {
                 let msg = VT::verify_view_transfer_message::<NI>(info_provider, header, view_transfer.payload().clone())?;
 
-                Ok(())
-            }
-            SystemMessage::OrderedRequest(request) => {
-                Ok(())
-            }
-            SystemMessage::OrderedReply(reply) => {
-                Ok(())
-            }
-            SystemMessage::UnorderedReply(reply) => {
-                Ok(())
-            }
-            SystemMessage::UnorderedRequest(request) => {
                 Ok(())
             }
             SystemMessage::ForwardedProtocolMessage(fwd_protocol) => {

@@ -10,9 +10,9 @@ use atlas_smr_application::serialize::ApplicationData;
 
 use crate::{SMRReply, SMRReq};
 
-/// The message enum that encapsulates all messages that are sent in the SMR protocol
+///A reply to an unordered request
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
+pub enum OrderableMessage<D: ApplicationData> {
     ///An ordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
@@ -29,6 +29,12 @@ pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize= "D::Reply: Serialize"))]
     UnorderedReply(SMRReply<D>),
+}
+
+/// The message enum that encapsulates all messages that are sent in the SMR protocol
+/// These messages are only the ones that are going to be sent between participating replicas
+#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
+pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
     ///Requests forwarded from other peers
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
@@ -108,18 +114,6 @@ impl<D, P, ST, LT, VT> SystemMessage<D, P, ST, LT, VT> where D: ApplicationData 
 impl<D, P, ST, LT, VT> Clone for SystemMessage<D, P, ST, LT, VT> where D: ApplicationData, P: Clone, ST: Clone, LT: Clone, VT: Clone {
     fn clone(&self) -> Self {
         match self {
-            SystemMessage::OrderedRequest(req) => {
-                SystemMessage::OrderedRequest(req.clone())
-            }
-            SystemMessage::UnorderedRequest(req) => {
-                SystemMessage::UnorderedRequest(req.clone())
-            }
-            SystemMessage::OrderedReply(rep) => {
-                SystemMessage::OrderedReply(rep.clone())
-            }
-            SystemMessage::UnorderedReply(rep) => {
-                SystemMessage::UnorderedReply(rep.clone())
-            }
             SystemMessage::ForwardedRequestMessage(fwd_req) => {
                 SystemMessage::ForwardedRequestMessage(fwd_req.clone())
             }
@@ -148,18 +142,6 @@ impl<D, P, ST, LT, VT> Debug for SystemMessage<D, P, ST, LT, VT>
           LT: Clone, VT: Clone {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            SystemMessage::OrderedRequest(_) => {
-                write!(f, "Ordered Request")
-            }
-            SystemMessage::UnorderedRequest(_) => {
-                write!(f, "Unordered Request")
-            }
-            SystemMessage::OrderedReply(_) => {
-                write!(f, "Ordered Reply")
-            }
-            SystemMessage::UnorderedReply(_) => {
-                write!(f, "Unordered Reply")
-            }
             SystemMessage::ForwardedRequestMessage(_) => {
                 write!(f, "Forwarded Request")
             }

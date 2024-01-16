@@ -10,6 +10,7 @@ pub mod persistent_log;
 pub mod message;
 pub mod state_transfer;
 pub mod serialize;
+pub mod request_pre_processing;
 
 pub type SMRReq<D: ApplicationData> = RequestMessage<D::Request>;
 pub type SMRRawReq<R> = RequestMessage<R>;
