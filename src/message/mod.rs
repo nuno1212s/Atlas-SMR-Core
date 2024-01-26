@@ -34,7 +34,7 @@ pub enum OrderableMessage<D: ApplicationData> {
 /// The message enum that encapsulates all messages that are sent in the SMR protocol
 /// These messages are only the ones that are going to be sent between participating replicas
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
+pub enum SystemMessage<D: ApplicationData, P, LT, VT> {
     ///Requests forwarded from other peers
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
@@ -43,21 +43,15 @@ pub enum SystemMessage<D: ApplicationData, P, ST, LT, VT> {
     ProtocolMessage(Protocol<P>),
     ///A protocol message that has been forwarded by another peer
     ForwardedProtocolMessage(ForwardedProtocolMessage<P>),
-    ///A state transfer protocol message
-    StateTransferMessage(StateTransfer<ST>),
     ///A Log transfer protocol message
     LogTransferMessage(LogTransfer<LT>),
     /// View Transfer protocol message
     ViewTransferMessage(VTMessage<VT>),
 }
 
-impl<D, P, ST, LT, VT> SystemMessage<D, P, ST, LT, VT> where D: ApplicationData {
+impl<D, P, LT, VT> SystemMessage<D, P, LT, VT> where D: ApplicationData {
     pub fn from_protocol_message(msg: P) -> Self {
         SystemMessage::ProtocolMessage(Protocol::new(msg))
-    }
-
-    pub fn from_state_transfer_message(msg: ST) -> Self {
-        SystemMessage::StateTransferMessage(StateTransfer::new(msg))
     }
 
     pub fn from_log_transfer_message(msg: LT) -> Self {
@@ -83,15 +77,6 @@ impl<D, P, ST, LT, VT> SystemMessage<D, P, ST, LT, VT> where D: ApplicationData 
         }
     }
 
-    pub fn into_state_tranfer_message(self) -> ST {
-        match self {
-            SystemMessage::StateTransferMessage(s) => {
-                s.into_inner()
-            }
-            _ => { unreachable!() }
-        }
-    }
-
     pub fn into_log_transfer_message(self) -> LT {
         match self {
             SystemMessage::LogTransferMessage(l) => {
@@ -111,7 +96,7 @@ impl<D, P, ST, LT, VT> SystemMessage<D, P, ST, LT, VT> where D: ApplicationData 
     }
 }
 
-impl<D, P, ST, LT, VT> Clone for SystemMessage<D, P, ST, LT, VT> where D: ApplicationData, P: Clone, ST: Clone, LT: Clone, VT: Clone {
+impl<D, P, LT, VT> Clone for SystemMessage<D, P, LT, VT> where D: ApplicationData, P: Clone,  LT: Clone, VT: Clone {
     fn clone(&self) -> Self {
         match self {
             SystemMessage::ForwardedRequestMessage(fwd_req) => {
@@ -123,9 +108,6 @@ impl<D, P, ST, LT, VT> Clone for SystemMessage<D, P, ST, LT, VT> where D: Applic
             SystemMessage::ForwardedProtocolMessage(prot) => {
                 SystemMessage::ForwardedProtocolMessage(prot.clone())
             }
-            SystemMessage::StateTransferMessage(state_transfer) => {
-                SystemMessage::StateTransferMessage(state_transfer.clone())
-            }
             SystemMessage::LogTransferMessage(log_transfer) => {
                 SystemMessage::LogTransferMessage(log_transfer.clone())
             }
@@ -136,10 +118,28 @@ impl<D, P, ST, LT, VT> Clone for SystemMessage<D, P, ST, LT, VT> where D: Applic
     }
 }
 
-impl<D, P, ST, LT, VT> Debug for SystemMessage<D, P, ST, LT, VT>
+impl<D> Clone for OrderableMessage<D> where D: ApplicationData {
+    fn clone(&self) -> Self {
+        match self {
+            OrderableMessage::OrderedRequest(req) => {
+                OrderableMessage::OrderedRequest(req.clone())
+            }
+            OrderableMessage::UnorderedRequest(req) => {
+                OrderableMessage::UnorderedRequest(req.clone())
+            }
+            OrderableMessage::OrderedReply(rep) => {
+                OrderableMessage::OrderedReply(rep.clone())
+            }
+            OrderableMessage::UnorderedReply(rep) => {
+                OrderableMessage::UnorderedReply(rep.clone())
+            }
+        }
+    }
+}
+
+impl<D, P,  LT, VT> Debug for SystemMessage<D, P, LT, VT>
     where D: ApplicationData,
-          P: Clone, ST: Clone,
-          LT: Clone, VT: Clone {
+          P: Clone, LT: Clone, VT: Clone {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             SystemMessage::ForwardedRequestMessage(_) => {
@@ -150,9 +150,6 @@ impl<D, P, ST, LT, VT> Debug for SystemMessage<D, P, ST, LT, VT>
             }
             SystemMessage::ForwardedProtocolMessage(_) => {
                 write!(f, "Forwarded Protocol Message")
-            }
-            SystemMessage::StateTransferMessage(_) => {
-                write!(f, "State Transfer Message")
             }
             SystemMessage::LogTransferMessage(_) => {
                 write!(f, "Log transfer message")

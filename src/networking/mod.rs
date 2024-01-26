@@ -1,377 +1,152 @@
-pub mod serialize;
-pub mod signature_ver;
-
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
+
 use atlas_common::crypto::hash::Digest;
+use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
-use atlas_communication::{FullNetworkNode, NetworkNode};
-use atlas_communication::message::{SerializedMessage, StoredMessage, StoredSerializedProtocolMessage};
-use atlas_communication::protocol_node::{NodeIncomingRqHandler, ProtocolNetworkNode};
-use atlas_communication::reconfiguration_node::{NetworkInformationProvider, ReconfigurationNode};
-use atlas_communication::serialize::Serializable;
-use atlas_core::messages::{ForwardedRequestsMessage, RequestMessage};
+use atlas_communication::message::{Buf, SerializedMessage, StoredMessage, StoredSerializedMessage};
+use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::serialization::Serializable;
+use atlas_communication::stub::{ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub, NetworkStub, OperationStub, ReconfigurationStub, RegularNetworkStub, StateProtocolStub};
+use atlas_core::messages::ForwardedRequestsMessage;
 use atlas_core::ordering_protocol::networking::{OrderProtocolSendNode, ViewTransferProtocolSendNode};
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
-use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
 use atlas_logging_core::log_transfer::networking::LogTransferSendNode;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
+use atlas_smr_application::serialize::ApplicationData;
+
+use crate::{SMRReply, SMRReq};
+use crate::exec::{ReplyNode, ReplyType};
+use crate::message::{OrderableMessage, SystemMessage};
+use crate::request_pre_processing::network::RequestPreProcessingHandle;
+use crate::serialize::{Service, ServiceMessage, SMRSysMessage, SMRSysRequest, StateSys};
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
-use atlas_smr_application::serialize::ApplicationData;
-use crate::exec::ReplyNode;
-use crate::message::SystemMessage;
-use crate::serialize::{ClientServ, Service, ServiceMessage};
-use crate::{SMRReply, SMRReq};
 
-///TODO: I wound up creating a whole new layer of abstractions, but I'm not sure they are necessary. I did it
-/// To allow for the protocols to all use NT, as if I didn't, a lot of things would have to change in how the generic NT was
-/// going to be passed around the protocols. I'm not sure if this is the best way to do it, but it works for now.
-pub trait SMRNetworkNode<NI, RM, D, P, S, L, VT>:
-FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> +
-ReplyNode<SMRReply<D>> + StateTransferSendNode<S> + OrderProtocolSendNode<SMRReq<D>, P>
-+ LogTransferSendNode<SMRReq<D>, P, L> + ViewTransferProtocolSendNode<VT>
+pub mod signature_ver;
+
+pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
           VT: ViewTransferProtocolMessage + 'static,
+          S: StateTransferMessage + 'static,
           NI: NetworkInformationProvider,
-          RM: Serializable {}
+          RM: Serializable {
+    type ProtocolNode: OrderProtocolSendNode<SMRReq<D>, P> + LogTransferSendNode<SMRReq<D>, P, L> + ViewTransferProtocolSendNode<VT> + RegularNetworkStub<Service<D, P, L, VT>>;
 
-#[derive(Clone)]
-pub struct NodeWrap<NT, D, P, S, L, VT, NI, RM>(pub NT, PhantomData<fn() -> (D, P, S, L, VT, NI, RM)>)
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static,;
+    type ApplicationNode: RequestPreProcessingHandle<SMRSysMessage<D>> + ReplyNode<SMRReply<D>>;
 
-impl<NT, D, P, S, L, VT, NI, RM> NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static, {
-    pub fn from_node(node: NT) -> Self {
-        NodeWrap(node, Default::default())
+    type StateTransferNode: StateTransferSendNode<S> + RegularNetworkStub<StateSys<S>>;
+
+    type ReconfigurationNode: RegularNetworkStub<RM>;
+
+    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: ()) -> Result<Self>;
+
+    fn protocol_node(&self) -> &Arc<Self::ProtocolNode>;
+
+    fn app_node(&self) -> &Arc<Self::ApplicationNode>;
+
+    fn state_transfer_node(&self) -> &Arc<Self::StateTransferNode>;
+
+    fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
+}
+
+pub struct NodeWrap<CN, BN, NI, RM, D, P, L, VT, S> {
+    op_stub: Arc<ProtocolNode<D, P, L, VT, OperationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>>,
+    state_transfer_stub: Arc<StateTransferNode<S, StateProtocolStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>>,
+    app_stub: Arc<AppNode<D, ApplicationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>>,
+    reconf_stub: Arc<ReconfigurationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>,
+}
+
+impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S> for NodeWrap<CN, BN, NI, RM, D, P, L, VT, S> {
+    type ProtocolNode = ProtocolNode<D, P, L, VT, OperationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>;
+    type ApplicationNode = AppNode<D, ApplicationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>;
+    type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>>;
+    type ReconfigurationNode = ReconfigurationStub<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysRequest<D>>;
+
+    fn protocol_node(&self) -> &Arc<Self::ProtocolNode> {
+        &self.op_stub
+    }
+
+    fn app_node(&self) -> &Arc<Self::ApplicationNode> {
+        &self.app_stub
+    }
+
+    fn state_transfer_node(&self) -> &Arc<Self::StateTransferNode> {
+        &self.state_transfer_stub
+    }
+
+    fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode> {
+        &self.reconf_stub
     }
 }
 
-impl<NT, D, P, S, L, VT, NI, RM> Deref for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static, {
-    type Target = NT;
+pub struct ProtocolNode<D, P, L, VT, NT>(NT, PhantomData<fn() -> (D, P, L, VT)>)
+    where NT: NetworkStub<Service<D, P, L, VT>>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
+pub struct AppNode<D, NT>(NT, PhantomData<fn() -> D>)
+    where NT: NetworkStub<SMRSysRequest<D>>;
 
-impl<NT, D, P, S, L, VT, NI, RM> NetworkNode for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: 'static + ApplicationData,
-          P: 'static + OrderingProtocolMessage<SMRReq<D>>,
-          L: 'static + LogTransferMessage<SMRReq<D>, P>,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: 'static + NetworkInformationProvider,
-          NT: 'static + FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>,
-          RM: 'static + Serializable, S: 'static + StateTransferMessage {
-    type ConnectionManager = NT::ConnectionManager;
-    type NetworkInfoProvider = NT::NetworkInfoProvider;
+pub struct StateTransferNode<S, NT>(NT, PhantomData<fn() -> S>)
+    where NT: NetworkStub<StateSys<S>>;
+
+impl<D, P, L, VT, NT> OrderProtocolSendNode<SMRReq<D>, P> for ProtocolNode<D, P, L, VT, NT>
+    where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+          L: LogTransferMessage<SMRReq<D>, P>,
+          VT: ViewTransferProtocolMessage,
+          NT: NetworkStub<Service<D, P, L, VT>> {
+    type NetworkInfoProvider = ();
 
     fn id(&self) -> NodeId {
-        NT::id(&self.0)
-    }
-
-    fn node_connections(&self) -> &Arc<Self::ConnectionManager> {
-        NT::node_connections(&self.0)
+        todo!()
     }
 
     fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        NT::network_info_provider(&self.0)
-    }
-}
-
-impl<NT, D, P, S, L, VT, NI, RM> ProtocolNetworkNode<Service<D, P, S, L, VT>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static, {
-    type IncomingRqHandler = NT::IncomingRqHandler;
-    type NetworkSignatureVerifier = NT::NetworkSignatureVerifier;
-
-    fn node_incoming_rq_handling(&self) -> &Arc<Self::IncomingRqHandler> {
-        ProtocolNetworkNode::node_incoming_rq_handling(&self.0)
-    }
-
-    fn send(&self, message: ServiceMessage<D, P, S, L, VT>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(message, target, flush)
-    }
-
-    fn send_signed(&self, message: ServiceMessage<D, P, S, L, VT>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(message, target, flush)
-    }
-
-    fn broadcast(&self, message: ServiceMessage<D, P, S, L, VT>, targets: impl Iterator<Item=NodeId>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast(message, targets)
-    }
-
-    fn broadcast_signed(&self, message: ServiceMessage<D, P, S, L, VT>, target: impl Iterator<Item=NodeId>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(message, target)
-    }
-
-    fn serialize_digest_message(&self, message: ServiceMessage<D, P, S, L, VT>) -> atlas_common::error::Result<(SerializedMessage<ServiceMessage<D, P, S, L, VT>>, Digest)> {
-        self.0.serialize_digest_message(message)
-    }
-
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<ServiceMessage<D, P, S, L, VT>>>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast_serialized(messages)
-    }
-}
-
-impl<NT, D, P, S, L, VT, NI, RM> ProtocolNetworkNode<ClientServ<D>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: 'static + ApplicationData,
-          L: 'static + LogTransferMessage<SMRReq<D>, P>,
-          NI: 'static + NetworkInformationProvider,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>,
-          P: 'static + OrderingProtocolMessage<SMRReq<D>>,
-          RM: 'static + Serializable,
-          S: 'static + StateTransferMessage,
-          VT: 'static + ViewTransferProtocolMessage {
-
-    type IncomingRqHandler = NT::IncomingRqHandler;
-    type NetworkSignatureVerifier = NT::NetworkSignatureVerifier;
-
-    fn node_incoming_rq_handling(&self) -> &Arc<Self::IncomingRqHandler> {
-        ProtocolNetworkNode::node_incoming_rq_handling(&self.0)
-    }
-
-    fn send(&self, message: ClientServ<D>::Message, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(message, target, flush)
-    }
-
-    fn send_signed(&self, message: ClientServ<D>::Message, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(message, target, flush)
-    }
-
-    fn broadcast(&self, message: ClientServ<D>::Message, targets: impl Iterator<Item=NodeId>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast(message, targets)
-    }
-
-    fn broadcast_signed(&self, message: ClientServ<D>::Message, target: impl Iterator<Item=NodeId>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(message, target)
-    }
-
-    fn serialize_digest_message(&self, message: ClientServ<D>::Message) -> atlas_common::error::Result<(SerializedMessage<ClientServ<D>::Message>, Digest)> {
-        self.0.serialize_digest_message(message)
-    }
-
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<ClientServ<D>::Message>>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast_serialized(messages)
-    }
-}
-
-impl<NT, D, P, S, L, VT, NI, RM> ReconfigurationNode<RM> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static,
-          D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          RM: Serializable + 'static, {
-    type IncomingReconfigRqHandler = NT::IncomingReconfigRqHandler;
-    type ReconfigurationNetworkUpdate = NT::ReconfigurationNetworkUpdate;
-
-    fn reconfiguration_network_update(&self) -> &Arc<Self::ReconfigurationNetworkUpdate> {
-        self.0.reconfiguration_network_update()
-    }
-
-    fn reconfiguration_message_handler(&self) -> &Arc<Self::IncomingReconfigRqHandler> {
-        self.0.reconfiguration_message_handler()
-    }
-
-    fn send_reconfig_message(&self, message: RM::Message, target: NodeId) -> atlas_common::error::Result<()> {
-        self.0.send_reconfig_message(message, target)
-    }
-
-    fn broadcast_reconfig_message(&self, message: RM::Message, target: impl Iterator<Item=NodeId>) -> Result<(), Vec<NodeId>> {
-        self.0.broadcast_reconfig_message(message, target)
-    }
-}
-
-
-impl<NT, D, P, S, L, VT, NI, RM> FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where
-        D: ApplicationData + 'static,
-        P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-        L: LogTransferMessage<SMRReq<D>, P> + 'static,
-        S: StateTransferMessage + 'static,
-        VT: ViewTransferProtocolMessage + 'static,
-        RM: Serializable + 'static,
-        NI: NetworkInformationProvider + 'static,
-        NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>, {
-    type Config = NT::Config;
-
-    async fn bootstrap(node_id: NodeId, network_info_provider: Arc<NI>, node_config: Self::Config) -> atlas_common::error::Result<Self> {
-        Ok(NodeWrap::from_node(NT::bootstrap(node_id, network_info_provider, node_config).await?))
-    }
-}
-
-
-impl<NT, D, P, S, L, VT, NI, RM> LogTransferSendNode<SMRReq<D>, P, L> for NodeWrap<NT, D, P, S, L,VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          S: StateTransferMessage + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          RM: Serializable + 'static,
-          NI: NetworkInformationProvider + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>, {
-    #[inline(always)]
-    fn id(&self) -> NodeId {
-        self.0.id()
+        todo!()
     }
 
     #[inline(always)]
-    fn send(&self, message: L::LogTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(SystemMessage::from_log_transfer_message(message), target, flush)
-    }
-
-    #[inline(always)]
-    fn send_signed(&self, message: L::LogTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(SystemMessage::from_log_transfer_message(message), target, flush)
-    }
-
-    fn broadcast(&self, message: L::LogTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast(SystemMessage::from_log_transfer_message(message), targets)
-    }
-
-    fn broadcast_signed(&self, message: L::LogTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(SystemMessage::from_log_transfer_message(message), targets)
-    }
-
-    /// Why do we do this wrapping/unwrapping? Well, since we want to avoid having to store all of the
-    /// generics that are used at the replica level (with all message types), we can't
-    /// just return a system message type.
-    /// This way, we can still keep this working well with just very small memory changes (to the stack)
-    /// and avoid having to store all those unnecessary types in generics
-    #[inline(always)]
-    fn serialize_digest_message(&self, message: L::LogTransferMessage) -> atlas_common::error::Result<(SerializedMessage<L::LogTransferMessage>, Digest)> {
-        let (message, digest) = self.0.serialize_digest_message(SystemMessage::from_log_transfer_message(message))?;
-
-        let (message, bytes) = message.into_inner();
-
-        let message = message.into_log_transfer_message();
-
-        Ok((SerializedMessage::new(message, bytes), digest))
-    }
-
-    /// Read comment above
-    #[inline(always)]
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<L::LogTransferMessage>>) -> std::result::Result<(), Vec<NodeId>> {
-        let mut map = BTreeMap::new();
-
-        for (node, message) in messages.into_iter() {
-            let (header, message) = message.into_inner();
-
-            let (message, bytes) = message.into_inner();
-
-            let sys_msg = SystemMessage::from_log_transfer_message(message);
-
-            let serialized_msg = SerializedMessage::new(sys_msg, bytes);
-
-            map.insert(node, StoredMessage::new(header, serialized_msg));
-        }
-
-        self.0.broadcast_serialized(map)
-    }
-}
-
-
-impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<SMRReq<D>, P> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          RM: Serializable + 'static,
-          NI: NetworkInformationProvider + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>, {
-    type NetworkInfoProvider = NT::NetworkInfoProvider;
-
-    #[inline(always)]
-    fn id(&self) -> NodeId {
-        self.0.id()
-    }
-
-    fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        NT::network_info_provider(&self.0)
-    }
-
     fn forward_requests(&self, fwd_requests: ForwardedRequestsMessage<SMRReq<D>>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(SystemMessage::ForwardedRequestMessage(fwd_requests), targets)
+        self.0.outgoing_stub().broadcast_signed(SystemMessage::ForwardedRequestMessage(fwd_requests), targets)
     }
 
     #[inline(always)]
     fn send(&self, message: P::ProtocolMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(SystemMessage::from_protocol_message(message), target, flush)
+        self.0.outgoing_stub().send(SystemMessage::from_protocol_message(message), target, flush)
     }
 
     #[inline(always)]
     fn send_signed(&self, message: P::ProtocolMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(SystemMessage::from_protocol_message(message), target, flush)
+        self.0.outgoing_stub().send_signed(SystemMessage::from_protocol_message(message), target, flush)
     }
 
     #[inline(always)]
     fn broadcast(&self, message: P::ProtocolMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast(SystemMessage::from_protocol_message(message), targets)
+        self.0.outgoing_stub().broadcast(SystemMessage::from_protocol_message(message), targets)
     }
 
     #[inline(always)]
     fn broadcast_signed(&self, message: P::ProtocolMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(SystemMessage::from_protocol_message(message), targets)
+        self.0.outgoing_stub().broadcast_signed(SystemMessage::from_protocol_message(message), targets)
     }
 
-    /// Why do we do this wrapping/unwrapping? Well, since we want to avoid having to store all of the
-    /// generics that are used at the replica level (with all message types), we can't
-    /// just return a system message type.
-    /// This way, we can still keep this working well with just very small memory changes (to the stack)
-    /// and avoid having to store all those unnecessary types in generics
     #[inline(always)]
     fn serialize_digest_message(&self, message: P::ProtocolMessage) -> atlas_common::error::Result<(SerializedMessage<P::ProtocolMessage>, Digest)> {
-        let (message, digest) = self.0.serialize_digest_message(SystemMessage::from_protocol_message(message))?;
+        let (message, digest) = self.0.outgoing_stub().serialize_digest_message(SystemMessage::from_protocol_message(message))?;
 
-        let (message, bytes) = message.into_inner();
+        let (message, bytes): (ServiceMessage<D, P, L, VT>, Buf) = message.into_inner();
 
         let message = message.into_protocol_message();
 
         Ok((SerializedMessage::new(message, bytes), digest))
     }
 
-    /// Read comment above
     #[inline(always)]
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<P::ProtocolMessage>>) -> std::result::Result<(), Vec<NodeId>> {
+    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<P::ProtocolMessage>>) -> std::result::Result<(), Vec<NodeId>> {
         let mut map = BTreeMap::new();
 
         for (node, message) in messages.into_iter() {
@@ -386,69 +161,119 @@ impl<NT, D, P, S, L, VT, RM, NI> OrderProtocolSendNode<SMRReq<D>, P> for NodeWra
             map.insert(node, StoredMessage::new(header, serialized_msg));
         }
 
-        self.0.broadcast_serialized(map)
+        self.0.outgoing_stub().broadcast_serialized(map)
     }
 }
 
-impl<NT, D, P, S, L, VT, RM, NI> ViewTransferProtocolSendNode<VT> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          RM: Serializable + 'static,
-          NI: NetworkInformationProvider + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>, {
-    type NetworkInfoProvider = NT::NetworkInfoProvider;
+impl<D, P, L, VT, NT> LogTransferSendNode<SMRReq<D>, P, L> for ProtocolNode<D, P, L, VT, NT>
+    where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+          L: LogTransferMessage<SMRReq<D>, P>,
+          VT: ViewTransferProtocolMessage,
+          NT: NetworkStub<Service<D, P, L, VT>> {
+    fn id(&self) -> NodeId {
+        todo!()
+    }
 
     #[inline(always)]
+    fn send(&self, message: L::LogTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+        self.0.outgoing_stub().send(SystemMessage::from_log_transfer_message(message), target, flush)
+    }
+
+    #[inline(always)]
+    fn send_signed(&self, message: L::LogTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+        self.0.outgoing_stub().send_signed(SystemMessage::from_log_transfer_message(message), target, flush)
+    }
+
+    #[inline(always)]
+    fn broadcast(&self, message: L::LogTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+        self.0.outgoing_stub().broadcast(SystemMessage::from_log_transfer_message(message), targets)
+    }
+
+    #[inline(always)]
+    fn broadcast_signed(&self, message: L::LogTransferMessage, target: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+        self.0.outgoing_stub().broadcast_signed(SystemMessage::from_log_transfer_message(message), target)
+    }
+
+    #[inline(always)]
+    fn serialize_digest_message(&self, message: L::LogTransferMessage) -> atlas_common::error::Result<(SerializedMessage<L::LogTransferMessage>, Digest)> {
+        let (message, digest) = self.0.outgoing_stub().serialize_digest_message(SystemMessage::from_log_transfer_message(message))?;
+
+        let (message, bytes): (ServiceMessage<D, P, L, VT>, Buf) = message.into_inner();
+
+        let message = message.into_log_transfer_message();
+
+        Ok((SerializedMessage::new(message, bytes), digest))
+    }
+
+    #[inline(always)]
+    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<L::LogTransferMessage>>) -> std::result::Result<(), Vec<NodeId>> {
+        let mut map = BTreeMap::new();
+
+        for (node, message) in messages.into_iter() {
+            let (header, message) = message.into_inner();
+
+            let (message, bytes) = message.into_inner();
+
+            let sys_msg = SystemMessage::from_log_transfer_message(message);
+
+            let serialized_msg = SerializedMessage::new(sys_msg, bytes);
+
+            map.insert(node, StoredMessage::new(header, serialized_msg));
+        }
+
+        self.0.outgoing_stub().broadcast_serialized(map)
+    }
+}
+
+impl<D, P, L, VT, NT> ViewTransferProtocolSendNode<VT> for ProtocolNode<D, P, L, VT, NT>
+    where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+          L: LogTransferMessage<SMRReq<D>, P>,
+          VT: ViewTransferProtocolMessage,
+          NT: NetworkStub<Service<D, P, L, VT>>
+{
+    type NetworkInfoProvider = ();
+
     fn id(&self) -> NodeId {
-        self.0.id()
+        todo!()
     }
 
     fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        NT::network_info_provider(&self.0)
+        todo!()
     }
 
     #[inline(always)]
     fn send(&self, message: VT::ProtocolMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(SystemMessage::from_view_transfer_message(message), target, flush)
+        self.0.outgoing_stub().send(SystemMessage::from_view_transfer_message(message), target, flush)
     }
 
     #[inline(always)]
     fn send_signed(&self, message: VT::ProtocolMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(SystemMessage::from_view_transfer_message(message), target, flush)
+        self.0.outgoing_stub().send_signed(SystemMessage::from_view_transfer_message(message), target, flush)
     }
 
     #[inline(always)]
     fn broadcast(&self, message: VT::ProtocolMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast(SystemMessage::from_view_transfer_message(message), targets)
+        self.0.outgoing_stub().broadcast(SystemMessage::from_view_transfer_message(message), targets)
     }
 
     #[inline(always)]
     fn broadcast_signed(&self, message: VT::ProtocolMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(SystemMessage::from_view_transfer_message(message), targets)
+        self.0.outgoing_stub().broadcast_signed(SystemMessage::from_view_transfer_message(message), targets)
     }
 
-    /// Why do we do this wrapping/unwrapping? Well, since we want to avoid having to store all of the
-    /// generics that are used at the replica level (with all message types), we can't
-    /// just return a system message type.
-    /// This way, we can still keep this working well with just very small memory changes (to the stack)
-    /// and avoid having to store all those unnecessary types in generics
     #[inline(always)]
     fn serialize_digest_message(&self, message: VT::ProtocolMessage) -> atlas_common::error::Result<(SerializedMessage<VT::ProtocolMessage>, Digest)> {
-        let (message, digest) = self.0.serialize_digest_message(SystemMessage::from_view_transfer_message(message))?;
+        let (message, digest) = self.0.outgoing_stub().serialize_digest_message(SystemMessage::from_view_transfer_message(message))?;
 
-        let (message, bytes) = message.into_inner();
+        let (message, bytes): (ServiceMessage<D, P, L, VT>, Buf) = message.into_inner();
 
         let message = message.into_view_transfer_message();
 
         Ok((SerializedMessage::new(message, bytes), digest))
     }
 
-    /// Read comment above
     #[inline(always)]
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<VT::ProtocolMessage>>) -> std::result::Result<(), Vec<NodeId>> {
+    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<VT::ProtocolMessage>>) -> std::result::Result<(), Vec<NodeId>> {
         let mut map = BTreeMap::new();
 
         for (node, message) in messages.into_iter() {
@@ -463,106 +288,98 @@ impl<NT, D, P, S, L, VT, RM, NI> ViewTransferProtocolSendNode<VT> for NodeWrap<N
             map.insert(node, StoredMessage::new(header, serialized_msg));
         }
 
-        self.0.broadcast_serialized(map)
+        self.0.outgoing_stub().broadcast_serialized(map)
     }
 }
 
-impl<NT, D, P, S, L, VT, NI, RM> StateTransferSendNode<S> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          RM: Serializable + 'static,
-          NI: NetworkInformationProvider + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>>, {
+impl<D, NT> RequestPreProcessingHandle<D> for AppNode<D, NT>
+    where D: ApplicationData,
+          NT: BatchedNetworkStub<SMRSysRequest<D>> {
     #[inline(always)]
+    fn receive_from_clients(&self, timeout: Option<Duration>) -> atlas_common::error::Result<Vec<StoredMessage<SMRSysMessage<D>>>> {
+        self.0.incoming_stub().receive_messages()
+    }
+
+    #[inline(always)]
+    fn try_receive_from_clients(&self) -> atlas_common::error::Result<Option<Vec<StoredMessage<SMRSysMessage<D>>>>> {
+        self.0.incoming_stub().try_receive_messages(None)
+    }
+}
+
+impl<D, NT> ReplyNode<SMRReply<D>> for AppNode<D, NT>
+    where D: ApplicationData,
+          NT: NetworkStub<SMRSysRequest<D>> {
+    #[inline(always)]
+    fn send(&self, reply_type: ReplyType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+        let message = match reply_type {
+            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
+            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+        };
+
+        self.0.outgoing_stub().send(message, target, flush)
+    }
+
+    #[inline(always)]
+    fn send_signed(&self, reply_type: ReplyType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+        let message = match reply_type {
+            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
+            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+        };
+
+        self.0.outgoing_stub().send_signed(message, target, flush)
+    }
+
+    #[inline(always)]
+    fn broadcast(&self, reply_type: ReplyType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+        let message = match reply_type {
+            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
+            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+        };
+
+        self.0.outgoing_stub().broadcast(message, targets)
+    }
+
+    #[inline(always)]
+    fn broadcast_signed(&self, reply_type: ReplyType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+        let message = match reply_type {
+            ReplyType::Ordered => { OrderableMessage::OrderedReply(reply) }
+            ReplyType::Unordered => { OrderableMessage::UnorderedReply(reply) }
+        };
+
+        self.0.outgoing_stub().broadcast_signed(message, targets)
+    }
+}
+
+impl<S, NT> StateTransferSendNode<S> for StateTransferNode<S, NT>
+    where S: StateTransferMessage,
+          NT: NetworkStub<StateSys<S>>
+{
     fn id(&self) -> NodeId {
-        self.0.id()
+        todo!()
     }
 
     #[inline(always)]
     fn send(&self, message: S::StateTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send(SystemMessage::from_state_transfer_message(message), target, flush)
+        self.0.outgoing_stub().send(message, target, flush)
     }
 
-    #[inline(always)]
     fn send_signed(&self, message: S::StateTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
-        self.0.send_signed(SystemMessage::from_state_transfer_message(message), target, flush)
+        self.0.outgoing_stub().send_signed(message, target, flush)
     }
 
-    #[inline(always)]
     fn broadcast(&self, message: S::StateTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast(SystemMessage::from_state_transfer_message(message), targets)
+        self.0.outgoing_stub().broadcast(message, targets)
     }
 
-    #[inline(always)]
     fn broadcast_signed(&self, message: S::StateTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
-        self.0.broadcast_signed(SystemMessage::from_state_transfer_message(message), targets)
+        self.0.outgoing_stub().broadcast_signed(message, targets)
     }
 
-    #[inline(always)]
     fn serialize_digest_message(&self, message: S::StateTransferMessage) -> atlas_common::error::Result<(SerializedMessage<S::StateTransferMessage>, Digest)> {
-        let (message, digest) = self.0.serialize_digest_message(SystemMessage::from_state_transfer_message(message))?;
-
-        let (message, bytes) = message.into_inner();
-
-        let message = message.into_state_tranfer_message();
-
-        Ok((SerializedMessage::new(message, bytes), digest))
+        self.0.outgoing_stub().serialize_digest_message(message)
     }
 
-    #[inline(always)]
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<S::StateTransferMessage>>) -> std::result::Result<(), Vec<NodeId>> {
-        let mut map = BTreeMap::new();
-
-        for (node, message) in messages.into_iter() {
-            let (header, message) = message.into_inner();
-
-            let (message, bytes) = message.into_inner();
-
-            let sys_msg = SystemMessage::from_state_transfer_message(message);
-
-            let serialized_msg = SerializedMessage::new(sys_msg, bytes);
-
-            map.insert(node, StoredMessage::new(header, serialized_msg));
-        }
-
-        self.0.broadcast_serialized(map)
-    }
-}
-
-impl<NT, NI, RM, D, P, S, L, VT> SMRNetworkNode<NI, RM, D, P, S, L, VT> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static, {}
-
-impl<NT, NI, RM, D, P, S, L, VT> RequestPreProcessingHandle<SMRReq<D>> for NodeWrap<NT, D, P, S, L, VT, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-          L: LogTransferMessage<SMRReq<D>, P> + 'static,
-          S: StateTransferMessage + 'static,
-          VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>, ClientServ<D>> + 'static, {
-    fn rqs_len_from_clients(&self) -> usize {
-        self.0.node_incoming_rq_handling().rqs_len_from_clients()
-    }
-
-    fn receive_from_clients(&self, timeout: Option<Duration>) -> atlas_common::error::Result<Vec<StoredMessage<SMRReq<D>>>> {
-        self.0.node_incoming_rq_handling().receive_from_clients(timeout).map(|res| {
-            res.into_iter().map(|message| {
-            })
-        })
-    }
-
-    fn try_receive_from_clients(&self) -> atlas_common::error::Result<Option<Vec<StoredMessage<SMRReq<D>>>>> {
-        todo!()
+    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<S::StateTransferMessage>>) -> std::result::Result<(), Vec<NodeId>> {
+        self.0.outgoing_stub().broadcast_serialized(messages)
     }
 }

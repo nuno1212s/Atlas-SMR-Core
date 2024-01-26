@@ -12,6 +12,8 @@ serialize_serde = ["serde", "atlas-common/serialize_serde", "atlas-core/serializ
 [dependencies]
 anyhow = "1.0"
 thiserror = "1.0"
+
+intmap = "2"
 atlas-common = { path = "../Atlas-Common" }
 atlas-communication = { path = "../Atlas-Communication" }
 atlas-core = { path = "../Atlas-Core" }

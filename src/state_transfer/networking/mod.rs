@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
-use atlas_communication::message::{SerializedMessage, StoredSerializedProtocolMessage};
+use atlas_communication::message::{SerializedMessage, StoredSerializedMessage};
 
 use atlas_core::ordering_protocol::networking::serialize::{ViewTransferProtocolMessage};
 use crate::state_transfer::networking::serialize::StateTransferMessage;
@@ -47,5 +47,5 @@ pub trait StateTransferSendNode<STM>
     /// Does not block on the message sent. Returns a result that is
     /// Ok if there is a current connection to the targets or err if not. No other checks are made
     /// on the success of the message dispatch
-    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedProtocolMessage<STM::StateTransferMessage>>) -> std::result::Result<(), Vec<NodeId>>;
+    fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<STM::StateTransferMessage>>) -> std::result::Result<(), Vec<NodeId>>;
 }

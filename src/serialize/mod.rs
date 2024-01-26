@@ -2,9 +2,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use atlas_communication::message::Header;
-use atlas_communication::message_signing::NetworkMessageSignatureVerifier;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
-use atlas_communication::serialize::Serializable;
+use atlas_communication::serialization::{InternalMessageVerifier, Serializable};
 use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
 use atlas_core::serialize::NoProtocol;
@@ -19,94 +18,19 @@ use crate::state_transfer::networking::signature_ver::StateTransferVerificationH
 
 /// The type that encapsulates all the serializing, so we don't have to constantly use SystemMessage
 pub struct Service<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
-    S: StateTransferMessage, L: LogTransferMessage<SMRReq<D>, P>, VT: ViewTransferProtocolMessage>(PhantomData<fn() -> (D, P, S, L, VT)>);
+    L: LogTransferMessage<SMRReq<D>, P>, VT: ViewTransferProtocolMessage>(PhantomData<fn() -> (D, P, L, VT)>);
 
-pub type ServiceMessage<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
-    S: StateTransferMessage, L: LogTransferMessage<SMRReq<D>, P>,
-    VT: ViewTransferProtocolMessage> = <Service<D, P, S, L, VT> as Serializable>::Message;
+pub type ServiceMessage<D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>, L: LogTransferMessage<SMRReq<D>, P>,
+    VT: ViewTransferProtocolMessage> = <Service<D, P, L, VT> as Serializable>::Message;
 
-pub struct ClientServ<D: ApplicationData>(PhantomData<fn() -> (D)>);
+impl<D, P, L, VT> Serializable for Service<D, P, L, VT>
+    where D: ApplicationData + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
+          VT: ViewTransferProtocolMessage + 'static {
+    type Message = SystemMessage<D, P::ProtocolMessage, L::LogTransferMessage, VT::ProtocolMessage>;
 
-pub type ClientServMessage<D: ApplicationData> = <ClientServ<D> as Serializable>::Message;
-
-pub type ClientServiceMsg<D: ApplicationData> = Service<D, NoProtocol, NoProtocol, NoProtocol, NoProtocol>;
-
-pub type ClientMessage<D: ApplicationData> = <ClientServiceMsg<D> as Serializable>::Message;
-
-pub trait VerificationWrapper<M, D> where D: ApplicationData {
-    // Wrap a given client request into a message
-    fn wrap_request(header: Header, request: RequestMessage<D::Request>) -> M;
-
-    fn wrap_reply(header: Header, reply: D::Reply) -> M;
-}
-
-impl<D> Serializable for ClientServ<D>
-    where D: ApplicationData {
-
-    type Message = OrderableMessage<D>;
-
-    fn verify_message_internal<NI, SV>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message) -> atlas_common::error::Result<()> where NI: NetworkInformationProvider + 'static, SV: NetworkMessageSignatureVerifier<Self, NI>, Self: Sized {
-        /// Client messages don't contain redirections or forwardings, so if the global signature checks out, we
-        /// are guaranteed to be in business
-        Ok(())
-    }
-}
-
-impl<D, P, S, L, VT> Serializable for Service<D, P, S, L, VT> where
-    D: ApplicationData + 'static,
-    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-    S: StateTransferMessage + 'static,
-    L: LogTransferMessage<SMRReq<D>, P> + 'static,
-    VT: ViewTransferProtocolMessage + 'static {
-    
-    type Message = SystemMessage<D, P::ProtocolMessage, S::StateTransferMessage, L::LogTransferMessage, VT::ProtocolMessage>;
-
-    fn verify_message_internal<NI, SV>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message) -> atlas_common::error::Result<()>
-        where NI: NetworkInformationProvider + 'static,
-              SV: NetworkMessageSignatureVerifier<Self, NI> {
-        match msg {
-            SystemMessage::ProtocolMessage(protocol) => {
-                let msg = P::verify_order_protocol_message::<NI, SigVerifier<SV, NI, D, P, S, L, VT>>(info_provider, header, protocol.payload().clone())?;
-
-                Ok(())
-            }
-            SystemMessage::LogTransferMessage(log_transfer) => {
-                let msg = L::verify_log_message::<NI, SigVerifier<SV, NI, D, P, S, L, VT>>(info_provider, header, log_transfer.payload().clone())?;
-
-                Ok(())
-            }
-            SystemMessage::StateTransferMessage(state_transfer) => {
-                let msg = S::verify_state_message::<NI, SigVerifier<SV, NI, D, P, S, L, VT>>(info_provider, header, state_transfer.payload().clone())?;
-
-                Ok(())
-            }
-            SystemMessage::ViewTransferMessage(view_transfer) => {
-                let msg = VT::verify_view_transfer_message::<NI>(info_provider, header, view_transfer.payload().clone())?;
-
-                Ok(())
-            }
-            SystemMessage::ForwardedProtocolMessage(fwd_protocol) => {
-                let header = fwd_protocol.header();
-                let message = fwd_protocol.message();
-
-                let message = P::verify_order_protocol_message::<NI, SigVerifier<SV, NI, D, P, S, L, VT>>(info_provider, message.header(), message.message().payload().clone())?;
-
-                Ok(())
-            }
-            SystemMessage::ForwardedRequestMessage(fwd_requests) => {
-                for stored_rq in fwd_requests.requests().iter() {
-                    let header = stored_rq.header();
-                    let message = stored_rq.message();
-
-                    let message = SystemMessage::OrderedRequest(message.clone());
-
-                    Self::verify_message_internal::<NI, SV>(info_provider, header, &message)?;
-                }
-
-                Ok(())
-            }
-        }
-    }
+    type Verifier = Self;
 
     #[cfg(feature = "serialize_capnp")]
     fn serialize_capnp(builder: febft_capnp::messages_capnp::system::Builder, msg: &Self::Message) -> Result<()> {
@@ -116,6 +40,91 @@ impl<D, P, S, L, VT> Serializable for Service<D, P, S, L, VT> where
     #[cfg(feature = "serialize_capnp")]
     fn deserialize_capnp(reader: febft_capnp::messages_capnp::system::Reader) -> Result<Self::Message> {
         capnp::deserialize_message::<D, P, S, L>(reader)
+    }
+}
+
+impl<D, P, L, VT> InternalMessageVerifier<ServiceMessage<D, P, L, VT>> for Service<D, P, L, VT>
+{
+    fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, msg: &ServiceMessage<D, P, L, VT>) -> atlas_common::error::Result<()>
+        where NI: NetworkInformationProvider,
+              D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
+              L: LogTransferMessage<SMRReq<D>, P>,
+              VT: ViewTransferProtocolMessage {
+        match msg {
+            SystemMessage::ProtocolMessage(protocol) => {
+                P::internally_verify_message::<NI, SigVerifier<NI, D, P, L, VT>>(info_provider, header, protocol.payload())?;
+
+                Ok(())
+            }
+            SystemMessage::LogTransferMessage(log_transfer) => {
+                L::verify_log_message::<NI, SigVerifier<NI, D, P, L, VT>>(info_provider, header, log_transfer.payload())?;
+
+                Ok(())
+            }
+            SystemMessage::ViewTransferMessage(view_transfer) => {
+                VT::internally_verify_message::<NI>(info_provider, header, view_transfer.payload())?;
+
+                Ok(())
+            }
+            SystemMessage::ForwardedProtocolMessage(fwd_protocol) => {
+                let header = fwd_protocol.header();
+                let message = fwd_protocol.message();
+
+                P::internally_verify_message::<NI, SigVerifier<NI, D, P, L, VT>>(info_provider, message.header(), message.message().payload())?;
+
+                Ok(())
+            }
+            SystemMessage::ForwardedRequestMessage(fwd_requests) => {
+                for stored_rq in fwd_requests.requests().iter() {
+                    let header = stored_rq.header();
+                    let message = stored_rq.message();
+
+                    let rq = OrderableMessage::OrderedRequest(message.clone());
+
+                    SigVerifier::<NI, D, P, L, VT>::verify_request_message(info_provider, header, &rq)?;
+                }
+
+                Ok(())
+            }
+        }
+    }
+}
+
+/// The state serialization type wrapper
+pub struct StateSys<S>(PhantomData<fn() -> S>);
+
+impl<S> Serializable for StateSys<S> where S: StateTransferMessage {
+    type Message = S::StateTransferMessage;
+    type Verifier = Self;
+}
+
+impl<S> InternalMessageVerifier<S::StateTransferMessage> for StateSys<S> where S: StateTransferMessage {
+    fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, message: &S::StateTransferMessage) -> Result<()>
+        where NI: NetworkInformationProvider {
+        Ok(())
+    }
+}
+
+/// The type that encapsulates all the serializing of the SMR related messages
+///
+/// This will be utilized in the protocols as the Serializable type, in order to wrap
+/// our applications data
+pub struct SMRSysRequest<D>(PhantomData<fn() -> D>);
+
+pub type SMRSysMessage<D> = <SMRSysRequest<D> as Serializable>::Message;
+
+impl<D> Serializable for SMRSysRequest<D>
+    where D: ApplicationData {
+    type Message = OrderableMessage<D>;
+    type Verifier = Self;
+}
+
+impl<D> InternalMessageVerifier<OrderableMessage<D>> for SMRSysRequest<D> where D: ApplicationData {
+    fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, message: &OrderableMessage<D>) -> Result<()>
+        where NI: NetworkInformationProvider {
+        // Client requests don't need to be internally verified, as they only contain application data.
+        // The signature verification is done on the network level
+        Ok(())
     }
 }
 

@@ -4,9 +4,7 @@ use atlas_common::error::*;
 use atlas_common::maybe_vec::MaybeVec;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::Orderable;
-use atlas_communication::FullNetworkNode;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
-use atlas_communication::serialize::Serializable;
 use atlas_core::executor::DecisionExecutorHandle;
 use atlas_core::messages::{ReplyMessage, SessionBased};
 use atlas_core::ordering_protocol::BatchedDecision;
@@ -17,9 +15,9 @@ use atlas_smr_application::ExecutorHandle;
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::{SMRRawReq, SMRReply, SMRReq};
-use crate::message::SystemMessage;
+use crate::message::{OrderableMessage, SystemMessage};
 use crate::networking::NodeWrap;
-use crate::serialize::Service;
+use crate::serialize::{ClientServ, Service};
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 
 pub trait StateExecutorTrait {
@@ -50,15 +48,15 @@ impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<SMRReply<D>> for NodeWrap<NT, D, P, S
           VT: ViewTransferProtocolMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, Service<D, P, S, L, VT>> + 'static,
+          NT: CliFacingNetworkNode<ClientServ<D>>,
 {
     fn send(&self, reply_type: ReplyType, reply: ReplyMessage<D::Reply>, target: NodeId, flush: bool) -> Result<()> {
         let message = match reply_type {
             ReplyType::Ordered => {
-                SystemMessage::OrderedReply(reply)
+                OrderableMessage::OrderedReply(reply)
             }
             ReplyType::Unordered => {
-                SystemMessage::UnorderedReply(reply)
+                OrderableMessage::UnorderedReply(reply)
             }
         };
 
@@ -68,10 +66,10 @@ impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<SMRReply<D>> for NodeWrap<NT, D, P, S
     fn send_signed(&self, reply_type: ReplyType, reply: ReplyMessage<D::Reply>, target: NodeId, flush: bool) -> Result<()> {
         let message = match reply_type {
             ReplyType::Ordered => {
-                SystemMessage::OrderedReply(reply)
+                OrderableMessage::OrderedReply(reply)
             }
             ReplyType::Unordered => {
-                SystemMessage::UnorderedReply(reply)
+                OrderableMessage::UnorderedReply(reply)
             }
         };
 
@@ -81,10 +79,10 @@ impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<SMRReply<D>> for NodeWrap<NT, D, P, S
     fn broadcast(&self, reply_type: ReplyType, reply: ReplyMessage<D::Reply>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         let message = match reply_type {
             ReplyType::Ordered => {
-                SystemMessage::OrderedReply(reply)
+                OrderableMessage::OrderedReply(reply)
             }
             ReplyType::Unordered => {
-                SystemMessage::UnorderedReply(reply)
+                OrderableMessage::UnorderedReply(reply)
             }
         };
         self.0.broadcast(message, targets)
@@ -93,10 +91,10 @@ impl<NT, D, P, S, L, VT, NI, RM> ReplyNode<SMRReply<D>> for NodeWrap<NT, D, P, S
     fn broadcast_signed(&self, reply_type: ReplyType, reply: ReplyMessage<D::Reply>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         let message = match reply_type {
             ReplyType::Ordered => {
-                SystemMessage::OrderedReply(reply)
+                OrderableMessage::OrderedReply(reply)
             }
             ReplyType::Unordered => {
-                SystemMessage::UnorderedReply(reply)
+                OrderableMessage::UnorderedReply(reply)
             }
         };
         self.0.broadcast_signed(message, targets)

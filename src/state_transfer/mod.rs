@@ -124,31 +124,22 @@ pub trait StateTransferProtocol<S, NT, PL> {
     fn poll(&mut self) -> Result<STPollResult<CstM<Self::Serialization>>>;
 
     /// Handle a state transfer protocol message that was received while executing the ordering protocol
-    fn handle_off_ctx_message<V>(&mut self,
-                                 view: V,
-                                 message: StoredMessage<CstM<Self::Serialization>>)
-                                 -> Result<()>
+    fn handle_off_ctx_message<V>(&mut self, view: V, message: StoredMessage<CstM<Self::Serialization>>) -> Result<()>
         where V: NetworkView;
 
     /// Process a state transfer protocol message, received from other replicas
     /// We also provide a mutable reference to the stateful ordering protocol, so the
     /// state can be installed (if that's the case)
-    fn process_message<V>(&mut self,
-                          view: V,
-                          message: StoredMessage<CstM<Self::Serialization>>)
-                          -> Result<STResult>
+    fn process_message<V>(&mut self, view: V, message: StoredMessage<CstM<Self::Serialization>>) -> Result<STResult>
         where V: NetworkView;
 
     /// Handle the replica wanting to request a state from the application
     /// The state transfer protocol then sees if the conditions are met to receive it
     /// (We could still be waiting for a previous checkpoint, for example)
-    fn handle_app_state_requested(&mut self,
-                                     seq: SeqNo) -> Result<ExecutionResult>;
+    fn handle_app_state_requested(&mut self, seq: SeqNo) -> Result<ExecutionResult>;
 
     /// Handle a timeout being received from the timeout layer
-    fn handle_timeout<V>(&mut self,
-                         view: V,
-                         timeout: Vec<RqTimeout>) -> Result<STTimeoutResult>
+    fn handle_timeout<V>(&mut self, view: V, timeout: Vec<RqTimeout>) -> Result<STTimeoutResult>
         where V: NetworkView;
 }
 

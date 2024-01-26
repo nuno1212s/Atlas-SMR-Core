@@ -10,9 +10,9 @@ use crate::state_transfer::networking::signature_ver::StateTransferVerificationH
 /// The abstraction for state transfer protocol messages.
 /// This allows us to have any state transfer protocol work with the same backbone
 pub trait StateTransferMessage: Send + Sync  {
-    
+
     type StateTransferMessage: SerType;
-    
+
     /// Verify the message and return the message if it is valid
     fn verify_state_message<NI, SVH>(network_info: &Arc<NI>,
                                           header: &Header,

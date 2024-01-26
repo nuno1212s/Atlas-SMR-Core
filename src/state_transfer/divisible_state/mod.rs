@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
+use atlas_common::channel::ChannelSyncTx;
 use atlas_common::error::*;
+use atlas_core::timeouts::Timeouts;
 use atlas_smr_application::state::divisible_state::{DivisibleState, InstallStateMessage};
-use atlas_core::ordering_protocol::networking::serialize::NetworkView;
 
 use crate::persistent_log::DivisibleStateLog;
-use atlas_core::timeouts::Timeouts;
 use crate::state_transfer::StateTransferProtocol;
 
 pub trait DivisibleStateTransfer<S, NT, PL>: StateTransferProtocol<S, NT, PL>
