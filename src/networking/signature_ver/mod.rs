@@ -2,33 +2,31 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
-use atlas_communication::serialize::Serializable;
 use atlas_core::messages::RequestMessage;
-use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
-use atlas_core::ordering_protocol::networking::signature_ver::OrderProtocolSignatureVerificationHelper;
+use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, OrderProtocolVerificationHelper, ViewTransferProtocolMessage};
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_logging_core::log_transfer::networking::signature_ver::LogTransferVerificationHelper;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::signature_ver::StateTransferVerificationHelper;
 use atlas_smr_application::serialize::ApplicationData;
 use crate::message::{OrderableMessage, SystemMessage};
-use crate::serialize::{ClientServ, Service};
+use crate::serialize::{Service, SMRSysMessage, SMRSysMsg};
 use crate::SMRReq;
 
-pub struct SigVerifier< NI, D, OP, LT, VT>(PhantomData<fn() -> ( NI, D, OP, LT, VT)>);
+pub struct SigVerifier<NI, D, OP, LT, VT>(PhantomData<fn() -> (NI, D, OP, LT, VT)>);
 
-impl< NI, D, P, L, VT> OrderProtocolSignatureVerificationHelper<SMRReq<D>, P, NI> for SigVerifier<NI, D, P,  L, VT>
+impl<NI, D, P, L, VT> OrderProtocolVerificationHelper<SMRReq<D>, P, NI> for SigVerifier<NI, D, P, L, VT>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
           VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
+          NI: 'static,
 {
-
-    fn verify_request_message(network_info: &Arc<NI>, header: &Header, request: SMRReq<D>) -> atlas_common::error::Result<SMRReq<D>> {
+    fn verify_request_message(network_info: &Arc<NI>, header: &Header, request: SMRReq<D>) -> atlas_common::error::Result<SMRReq<D>>
+        where NI: NetworkInformationProvider + 'static, {
         let message = OrderableMessage::<D>::OrderedRequest(request);
 
-        atlas_communication::message_signing::verify_message_validity::<D>(&**network_info, header, &message)?;
+        atlas_communication::message_signing::verify_message_validity::<SMRSysMsg<D>>(&**network_info, header, &message)?;
 
         if let OrderableMessage::OrderedRequest(r) = message {
             Ok(r)
@@ -37,7 +35,8 @@ impl< NI, D, P, L, VT> OrderProtocolSignatureVerificationHelper<SMRReq<D>, P, NI
         }
     }
 
-    fn verify_protocol_message(network_info: &Arc<NI>, header: &Header, message: P::ProtocolMessage) -> atlas_common::error::Result<P::ProtocolMessage> {
+    fn verify_protocol_message(network_info: &Arc<NI>, header: &Header, message: P::ProtocolMessage) -> atlas_common::error::Result<P::ProtocolMessage>
+        where NI: NetworkInformationProvider + 'static {
         let message = SystemMessage::<D, P::ProtocolMessage, L::LogTransferMessage, VT::ProtocolMessage>::from_protocol_message(message);
 
         atlas_communication::message_signing::verify_message_validity::<Service<D, P, L, VT>>(&**network_info, header, &message)?;
@@ -55,4 +54,4 @@ impl<NI, D, OP, LT, VT> LogTransferVerificationHelper<SMRReq<D>, OP, NI> for Sig
           OP: OrderingProtocolMessage<SMRReq<D>> + 'static,
           LT: LogTransferMessage<SMRReq<D>, OP> + 'static,
           VT: ViewTransferProtocolMessage + 'static,
-          NI: NetworkInformationProvider + 'static,{}
+          NI: NetworkInformationProvider + 'static, {}

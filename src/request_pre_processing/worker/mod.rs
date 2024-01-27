@@ -15,7 +15,7 @@ use atlas_core::timeouts::{RqTimeout, TimeoutKind};
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 
 use crate::metric::{RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
-use crate::request_pre_processing::{operation_key, operation_key_raw, PreProcessorOutputMessage};
+use crate::request_pre_processing::{ PreProcessorOutputMessage};
 
 const WORKER_QUEUE_SIZE: usize = 124;
 const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";

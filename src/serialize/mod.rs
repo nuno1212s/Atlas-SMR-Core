@@ -1,11 +1,13 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use atlas_common::error::*;
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_communication::serialization::{InternalMessageVerifier, Serializable};
 use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
+use atlas_core::ordering_protocol::networking::serialize::OrderProtocolVerificationHelper;
 use atlas_core::serialize::NoProtocol;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
@@ -44,12 +46,13 @@ impl<D, P, L, VT> Serializable for Service<D, P, L, VT>
 }
 
 impl<D, P, L, VT> InternalMessageVerifier<ServiceMessage<D, P, L, VT>> for Service<D, P, L, VT>
+    where D: ApplicationData + 'static,
+          P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+          L: LogTransferMessage<SMRReq<D>, P> + 'static,
+          VT: ViewTransferProtocolMessage + 'static
 {
     fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, msg: &ServiceMessage<D, P, L, VT>) -> atlas_common::error::Result<()>
-        where NI: NetworkInformationProvider,
-              D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
-              L: LogTransferMessage<SMRReq<D>, P>,
-              VT: ViewTransferProtocolMessage {
+        where NI: NetworkInformationProvider, {
         match msg {
             SystemMessage::ProtocolMessage(protocol) => {
                 P::internally_verify_message::<NI, SigVerifier<NI, D, P, L, VT>>(info_provider, header, protocol.payload())?;
@@ -79,9 +82,7 @@ impl<D, P, L, VT> InternalMessageVerifier<ServiceMessage<D, P, L, VT>> for Servi
                     let header = stored_rq.header();
                     let message = stored_rq.message();
 
-                    let rq = OrderableMessage::OrderedRequest(message.clone());
-
-                    SigVerifier::<NI, D, P, L, VT>::verify_request_message(info_provider, header, &rq)?;
+                    SigVerifier::<NI, D, P, L, VT>::verify_request_message(info_provider, header, message.clone())?;
                 }
 
                 Ok(())
@@ -109,17 +110,17 @@ impl<S> InternalMessageVerifier<S::StateTransferMessage> for StateSys<S> where S
 ///
 /// This will be utilized in the protocols as the Serializable type, in order to wrap
 /// our applications data
-pub struct SMRSysRequest<D>(PhantomData<fn() -> D>);
+pub struct SMRSysMsg<D>(PhantomData<fn() -> D>);
 
-pub type SMRSysMessage<D> = <SMRSysRequest<D> as Serializable>::Message;
+pub type SMRSysMessage<D> = <SMRSysMsg<D> as Serializable>::Message;
 
-impl<D> Serializable for SMRSysRequest<D>
-    where D: ApplicationData {
+impl<D> Serializable for SMRSysMsg<D>
+    where D: ApplicationData + 'static {
     type Message = OrderableMessage<D>;
     type Verifier = Self;
 }
 
-impl<D> InternalMessageVerifier<OrderableMessage<D>> for SMRSysRequest<D> where D: ApplicationData {
+impl<D> InternalMessageVerifier<OrderableMessage<D>> for SMRSysMsg<D> where D: ApplicationData {
     fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, message: &OrderableMessage<D>) -> Result<()>
         where NI: NetworkInformationProvider {
         // Client requests don't need to be internally verified, as they only contain application data.
