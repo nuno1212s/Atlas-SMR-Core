@@ -3,7 +3,7 @@ use atlas_common::node_id::NodeId;
 use atlas_common::error::*;
 use atlas_communication::byte_stub::ByteNetworkStub;
 use atlas_communication::byte_stub::connections::NetworkConnectionController;
-use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, ReconfigurationStub, RegularNetworkStub};
 use atlas_core::serialize::NoProtocol;

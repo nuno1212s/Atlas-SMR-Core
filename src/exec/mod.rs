@@ -4,7 +4,7 @@ use atlas_common::error::*;
 use atlas_common::maybe_vec::MaybeVec;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::Orderable;
-use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ModuleOutgoingStub, NetworkStub};
 use atlas_core::executor::DecisionExecutorHandle;

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 use atlas_communication::message::Header;
-use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, OrderProtocolVerificationHelper, ViewTransferProtocolMessage};
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;

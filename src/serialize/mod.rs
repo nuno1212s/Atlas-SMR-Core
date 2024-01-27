@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use atlas_common::error::*;
 use atlas_communication::message::Header;
-use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::{InternalMessageVerifier, Serializable};
 use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
@@ -52,7 +52,7 @@ impl<D, P, L, VT> InternalMessageVerifier<ServiceMessage<D, P, L, VT>> for Servi
           VT: ViewTransferProtocolMessage + 'static
 {
     fn verify_message<NI>(info_provider: &Arc<NI>, header: &Header, msg: &ServiceMessage<D, P, L, VT>) -> atlas_common::error::Result<()>
-        where NI: NetworkInformationProvider, {
+        where NI: NetworkInformationProvider + 'static, {
         match msg {
             SystemMessage::ProtocolMessage(protocol) => {
                 P::internally_verify_message::<NI, SigVerifier<NI, D, P, L, VT>>(info_provider, header, protocol.payload())?;

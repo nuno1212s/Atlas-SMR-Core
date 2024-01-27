@@ -10,7 +10,7 @@ use atlas_common::node_id::NodeId;
 use atlas_communication::byte_stub::ByteNetworkStub;
 use atlas_communication::byte_stub::connections::NetworkConnectionController;
 use atlas_communication::message::{Buf, SerializedMessage, StoredMessage, StoredSerializedMessage};
-use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub, NetworkStub, OperationStub, ReconfigurationStub, RegularNetworkStub, StateProtocolStub};
 use atlas_core::messages::ForwardedRequestsMessage;
@@ -74,7 +74,7 @@ pub struct NodeWrap<CN, NC, NI, RM, D, P, L, VT, S>
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
           NC: NetworkConnectionController {
-    op_stub: Arc<ProtocolNode<D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
+    op_stub: Arc<ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
     state_transfer_stub: Arc<StateTransferNode<S, StateProtocolStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
     app_stub: Arc<AppNode<D, ApplicationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
     reconf_stub: Arc<ReconfigurationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>,
@@ -86,13 +86,13 @@ impl<CN, NC, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
           VT: ViewTransferProtocolMessage + 'static,
           S: StateTransferMessage + 'static,
-          NI: NetworkInformationProvider,
+          NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
           NC: NetworkConnectionController {
     type Config = ();
 
-    type ProtocolNode = ProtocolNode<D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+    type ProtocolNode = ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
     type ApplicationNode = AppNode<D, ApplicationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
     type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
     type ReconfigurationNode = ReconfigurationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>;
@@ -127,7 +127,7 @@ impl<CN, NC, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
     }
 }
 
-pub struct ProtocolNode<D, P, L, VT, NT>(NT, PhantomData<fn() -> (D, P, L, VT)>)
+pub struct ProtocolNode<NI, D, P, L, VT, NT>(NT, PhantomData<fn() -> (NI, D, P, L, VT)>)
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
@@ -142,7 +142,7 @@ pub struct StateTransferNode<S, NT>(NT, PhantomData<fn() -> S>)
     where S: StateTransferMessage,
           NT: RegularNetworkStub<StateSys<S>>;
 
-impl<D, P, L, VT, NT> NetworkStub<Service<D, P, L, VT>> for ProtocolNode<D, P, L, VT, NT>
+impl<NI, D, P, L, VT, NT> NetworkStub<Service<D, P, L, VT>> for ProtocolNode<NI, D, P, L, VT, NT>
     where D: 'static + ApplicationData,
           L: 'static + LogTransferMessage<SMRReq<D>, P>,
           P: 'static + OrderingProtocolMessage<SMRReq<D>>,
@@ -168,7 +168,7 @@ impl<D, P, L, VT, NT> NetworkStub<Service<D, P, L, VT>> for ProtocolNode<D, P, L
     }
 }
 
-impl<D, P, L, VT, NT> RegularNetworkStub<Service<D, P, L, VT>> for ProtocolNode<D, P, L, VT, NT>
+impl<NI, D, P, L, VT, NT> RegularNetworkStub<Service<D, P, L, VT>> for ProtocolNode<NI, D, P, L, VT, NT>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
@@ -182,12 +182,13 @@ impl<D, P, L, VT, NT> RegularNetworkStub<Service<D, P, L, VT>> for ProtocolNode<
     }
 }
 
-impl<D, P, L, VT, NT> OrderProtocolSendNode<SMRReq<D>, P> for ProtocolNode<D, P, L, VT, NT>
+impl<NI, D, P, L, VT, NT> OrderProtocolSendNode<SMRReq<D>, P> for ProtocolNode<NI, D, P, L, VT, NT>
     where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
           L: LogTransferMessage<SMRReq<D>, P>,
           VT: ViewTransferProtocolMessage,
-          NT: RegularNetworkStub<Service<D, P, L, VT>> {
-    type NetworkInfoProvider = ();
+          NT: RegularNetworkStub<Service<D, P, L, VT>>,
+          NI: NetworkInformationProvider + 'static {
+    type NetworkInfoProvider = NI;
 
     fn id(&self) -> NodeId {
         todo!()
@@ -253,7 +254,7 @@ impl<D, P, L, VT, NT> OrderProtocolSendNode<SMRReq<D>, P> for ProtocolNode<D, P,
     }
 }
 
-impl<D, P, L, VT, NT> LogTransferSendNode<SMRReq<D>, P, L> for ProtocolNode<D, P, L, VT, NT>
+impl<NI, D, P, L, VT, NT> LogTransferSendNode<SMRReq<D>, P, L> for ProtocolNode<NI, D, P, L, VT, NT>
     where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
           L: LogTransferMessage<SMRReq<D>, P>,
           VT: ViewTransferProtocolMessage,
@@ -313,13 +314,14 @@ impl<D, P, L, VT, NT> LogTransferSendNode<SMRReq<D>, P, L> for ProtocolNode<D, P
     }
 }
 
-impl<D, P, L, VT, NT> ViewTransferProtocolSendNode<VT> for ProtocolNode<D, P, L, VT, NT>
+impl<NI, D, P, L, VT, NT> ViewTransferProtocolSendNode<VT> for ProtocolNode<NI, D, P, L, VT, NT>
     where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
           L: LogTransferMessage<SMRReq<D>, P>,
           VT: ViewTransferProtocolMessage,
-          NT: RegularNetworkStub<Service<D, P, L, VT>>
+          NT: RegularNetworkStub<Service<D, P, L, VT>>,
+          NI: NetworkInformationProvider + 'static
 {
-    type NetworkInfoProvider = ();
+    type NetworkInfoProvider = NI;
 
     fn id(&self) -> NodeId {
         todo!()
