@@ -13,9 +13,13 @@ use atlas_core::messages::{ClientRqInfo, SessionBased};
 use atlas_core::request_pre_processing::{operation_key, operation_key_raw, PreProcessorOutput};
 use atlas_core::timeouts::{RqTimeout, TimeoutKind};
 use atlas_metrics::metrics::{metric_duration, metric_increment};
+use atlas_smr_application::serialize::ApplicationData;
+use crate::message::OrderableMessage;
 
 use crate::metric::{RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
-use crate::request_pre_processing::{ PreProcessorOutputMessage};
+use crate::request_pre_processing::{PreProcessorOutputMessage};
+use crate::serialize::SMRSysMessage;
+use crate::SMRReq;
 
 const WORKER_QUEUE_SIZE: usize = 124;
 const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
@@ -25,9 +29,7 @@ pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>)
 pub enum PreProcessorWorkMessage<O> {
     /// We have received requests from the clients, which need
     /// to be processed
-    ClientPoolOrderedRequestsReceived(Vec<StoredMessage<O>>),
-    /// Client pool requests received
-    ClientPoolUnorderedRequestsReceived(Vec<StoredMessage<O>>),
+    ClientPoolRequestsReceived(Vec<StoredMessage<O>>),
     /// Received requests that were forwarded from other replicas
     ForwardedRequestsReceived(Vec<StoredMessage<O>>),
     StoppedRequestsReceived(Vec<StoredMessage<O>>),
@@ -44,29 +46,34 @@ pub enum PreProcessorWorkMessage<O> {
 }
 
 /// Each worker will be assigned a given set of clients
-pub struct RequestPreProcessingWorker<O> {
+pub struct RequestPreProcessingWorker<D> where D: ApplicationData + 'static {
     worker_id: usize,
     /// Receive work
-    message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<O>>,
+    message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<SMRSysMessage<D>>>,
 
     /// Output for the requests that have been processed and should now be proposed
-    batch_production: ChannelSyncTx<PreProcessorOutput<O>>,
+    ordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
+
+    unordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
 
     /// The latest operations seen by this worker.
     /// Since a given session will always be handled by the same worker,
     /// we can use this to filter out duplicates.
     latest_ops: IntMap<(SeqNo, Option<Digest>)>,
     /// The requests that have not been added to a batch yet.
-    pending_requests: HashMap<Digest, StoredMessage<O>>,
+    pending_requests: HashMap<Digest, StoredMessage<SMRSysMessage<D>>>,
 }
 
 
-impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
-    pub fn new(worker_id: usize, message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<O>>, batch_production: ChannelSyncTx<PreProcessorOutput<O>>) -> Self {
+impl<D> RequestPreProcessingWorker<D> where D: ApplicationData + 'static {
+    pub fn new(worker_id: usize, message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<SMRSysMessage<D>>>,
+               ordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
+               unordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>) -> Self {
         Self {
             worker_id,
             message_rx,
-            batch_production,
+            ordered_batch_production,
+            unordered_batch_production,
             latest_ops: Default::default(),
             pending_requests: Default::default(),
         }
@@ -77,11 +84,8 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
             let (sent_time, recvd_message) = self.message_rx.recv().unwrap();
 
             match recvd_message {
-                PreProcessorWorkMessage::ClientPoolOrderedRequestsReceived(requests) => {
-                    self.process_ordered_client_pool_requests(requests);
-                }
-                PreProcessorWorkMessage::ClientPoolUnorderedRequestsReceived(requests) => {
-                    self.process_unordered_client_pool_rqs(requests);
+                PreProcessorWorkMessage::ClientPoolRequestsReceived(requests) => {
+                    self.process_client_pool_requests(requests);
                 }
                 PreProcessorWorkMessage::ForwardedRequestsReceived(requests) => {
                     self.process_forwarded_requests(requests);
@@ -113,8 +117,8 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
     }
 
     /// Checks if we have received a more recent message for a given client/session combo
-    fn has_received_more_recent_and_update(&mut self, header: &Header, message: &O, unique_digest: &Digest) -> bool {
-        let key = operation_key::<O>(header, message);
+    fn has_received_more_recent_and_update(&mut self, header: &Header, message: &SMRSysMessage<D>, unique_digest: &Digest) -> bool {
+        let key = operation_key::<SMRSysMessage<D>>(header, message);
 
         let (seq_no, digest) = {
             if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
@@ -156,25 +160,52 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
     }
 
     /// Process the ordered client pool requests
-    fn process_ordered_client_pool_requests(&mut self, requests: Vec<StoredMessage<O>>) {
+    fn process_client_pool_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let start = Instant::now();
 
         let processed_rqs = requests.len();
 
-        let requests: Vec<StoredMessage<O>> = requests.into_iter().filter(|request| {
-            let digest = request.header().unique_digest();
+        let mut ordered_requests = Vec::with_capacity(requests.len());
 
-            if self.has_received_more_recent_and_update(request.header(), request.message(), &digest) {
-                return false;
+        let mut unordered_requests = Vec::with_capacity(requests.len());
+
+        for message in requests.into_iter() {
+            let digest = message.header().unique_digest();
+
+            if self.has_received_more_recent_and_update(message.header(), message.message(), &digest) {
+                continue;
             }
 
-            self.pending_requests.insert(digest.clone(), request.clone());
+            match &message.message() {
+                OrderableMessage::OrderedRequest(_) => {
+                    let header = message.header().clone();
 
-            return true;
-        }).collect();
+                    let req_msg = message.message().clone().into_smr_request();
 
-        if !requests.is_empty() {
-            if let Err(err) = self.batch_production.try_send_return((PreProcessorOutputMessage::DeDupedOrderedRequests(requests), Instant::now())) {
+                    ordered_requests.push(StoredMessage::new(header, req_msg));
+
+                    self.pending_requests.insert(digest.clone(), message);
+                }
+                OrderableMessage::UnorderedRequest(_) => {
+                    let (header, message) = message.into_inner();
+
+                    unordered_requests.push(StoredMessage::new(header, message.into_smr_request()));
+                }
+                _ => {
+                    error!("Received a reply as a client pool message.");
+                    continue;
+                }
+            }
+        }
+
+        if !ordered_requests.is_empty() {
+            if let Err(err) = self.ordered_batch_production.try_send_return((PreProcessorOutputMessage::from(ordered_requests), Instant::now())) {
+                error!("Worker {} // Failed to send client requests to batch production: {:?}", self.worker_id, err);
+            }
+        }
+
+        if !unordered_requests.is_empty() {
+            if let Err(err) = self.ordered_batch_production.try_send_return((PreProcessorOutputMessage::from(unordered_requests), Instant::now())) {
                 error!("Worker {} // Failed to send client requests to batch production: {:?}", self.worker_id, err);
             }
         }
@@ -183,45 +214,43 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
         metric_increment(RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, Some(processed_rqs as u64));
     }
 
-    /// Process the unordered client pool requests
-    fn process_unordered_client_pool_rqs(&mut self, requests: Vec<StoredMessage<O>>) {
-        let requests: Vec<StoredMessage<O>> = requests.into_iter().filter(|request| {
-            let digest = request.header().unique_digest();
-
-            if self.has_received_more_recent_and_update(request.header(), request.message(), &digest) {
-                return false;
-            }
-
-            return true;
-        }).collect();
-
-        if !requests.is_empty() {
-            if let Err(err) = self.batch_production.try_send_return((PreProcessorOutputMessage::DeDupedUnorderedRequests(requests), Instant::now())) {
-                error!("Worker {} // Failed to send unordered requests to batch production: {:?}", self.worker_id, err);
-            }
-        }
-    }
-
     /// Process the forwarded requests
-    fn process_forwarded_requests(&mut self, requests: Vec<StoredMessage<O>>) {
+    fn process_forwarded_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let initial_size = requests.len();
 
-        let requests: Vec<StoredMessage<O>> = requests.into_iter().filter(|request| {
+        let requests: Vec<StoredMessage<SMRReq<D>>> = requests.into_iter().filter(|request| {
             let digest = request.header().unique_digest();
 
             if self.has_received_more_recent_and_update(request.header(), request.message(), &digest) {
                 return false;
             }
 
-            self.pending_requests.insert(digest.clone(), request.clone());
+            match request.message() {
+                OrderableMessage::OrderedRequest(_) => {
+                    self.pending_requests.insert(digest.clone(), request.clone());
+                }
+                OrderableMessage::UnorderedRequest(_) => {
+                    error!("Received an unordered request as a forwarded message.");
+                    return false;
+                }
+                _ => {
+                    error!("Received a reply as a forwarded message.");
+                    return false;
+                }
+            }
+
 
             return true;
+        }).map(|req| {
+            let (header, message) = req.into_inner();
+
+            StoredMessage::new(header, message.into_smr_request())
         }).collect();
 
         debug!("Worker {} // Forwarded requests processed, out of {} left with {:?}", self.worker_id, initial_size, requests.len());
 
         if !requests.is_empty() {
-            if let Err(err) = self.batch_production.try_send_return((PreProcessorOutputMessage::DeDupedOrderedRequests(requests), Instant::now())) {
+            if let Err(err) = self.ordered_batch_production.try_send_return((PreProcessorOutputMessage::from(requests), Instant::now())) {
                 error!("Worker {} // Failed to send forwarded requests to batch production: {:?}", self.worker_id, err);
             }
         }
@@ -280,7 +309,7 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
     }
 
     /// Clone a set of pending requests
-    fn clone_pending_requests(&self, requests: Vec<ClientRqInfo>, responder: OneShotTx<Vec<StoredMessage<O>>>) {
+    fn clone_pending_requests(&self, requests: Vec<ClientRqInfo>, responder: OneShotTx<Vec<StoredMessage<SMRSysMessage<D>>>>) {
         let mut final_rqs = Vec::with_capacity(requests.len());
 
         for rq_info in requests {
@@ -293,7 +322,7 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
     }
 
     /// Collect all pending requests stored in this worker
-    fn collect_pending_requests(&mut self) -> Vec<StoredMessage<O>> {
+    fn collect_pending_requests(&mut self) -> Vec<StoredMessage<SMRSysMessage<D>>> {
         std::mem::replace(&mut self.pending_requests, Default::default())
             .into_iter().map(|(_, request)| request).collect()
     }
@@ -302,7 +331,7 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
         todo!()
     }
 
-    fn stopped_requests(&mut self, requests: Vec<StoredMessage<O>>) {
+    fn stopped_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         requests.into_iter().for_each(|request| {
             let digest = request.header().unique_digest();
 
@@ -315,12 +344,14 @@ impl<O> RequestPreProcessingWorker<O> where O: SessionBased + Clone {
     }
 }
 
-pub fn spawn_worker<O>(worker_id: usize, batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<O>, Instant)>) -> RequestPreProcessingWorkerHandle<O>
-    where O: Clone + SessionBased + Send + 'static {
+pub fn spawn_worker<D>(worker_id: usize, batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
+                       unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
+) -> RequestPreProcessingWorkerHandle<SMRSysMessage<D>>
+    where D: ApplicationData + 'static {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(WORKER_QUEUE_SIZE,
                                                                          Some(format!("Worker Handle {}", worker_id).as_str()));
 
-    let worker = RequestPreProcessingWorker::new(worker_id, worker_rx, batch_tx);
+    let worker = RequestPreProcessingWorker::new(worker_id, worker_rx, batch_tx, unordered_batch_rx);
 
     std::thread::Builder::new()
         .name(format!("{}{}", WORKER_THREAD_NAME, worker_id))

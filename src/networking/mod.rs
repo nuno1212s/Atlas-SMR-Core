@@ -10,7 +10,7 @@ use atlas_common::node_id::NodeId;
 use atlas_communication::byte_stub::ByteNetworkStub;
 use atlas_communication::byte_stub::connections::NetworkConnectionController;
 use atlas_communication::message::{Buf, SerializedMessage, StoredMessage, StoredSerializedMessage};
-use atlas_communication::reconfiguration::NetworkInformationProvider;
+use atlas_communication::reconfiguration::{NetworkInformationProvider, ReconfigurationMessageHandler};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub, NetworkStub, OperationStub, ReconfigurationStub, RegularNetworkStub, StateProtocolStub};
 use atlas_core::messages::ForwardedRequestsMessage;
@@ -21,9 +21,9 @@ use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::{SMRReply, SMRReq};
-use crate::exec::{ReplyNode, ReplyType};
+use crate::exec::{ReplyNode, RequestType};
 use crate::message::{OrderableMessage, SystemMessage};
-use crate::request_pre_processing::network::RequestPreProcessingHandle;
+use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
 use crate::serialize::{Service, ServiceMessage, SMRSysMessage, SMRSysMsg, StateSys};
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
@@ -51,7 +51,7 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
 
     type ReconfigurationNode: RegularNetworkStub<RM>;
 
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: ()) -> Result<Self> where Self: Sized;
+    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
 
     fn id(&self) -> NodeId;
 
@@ -97,7 +97,7 @@ impl<CN, NC, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
     type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
     type ReconfigurationNode = ReconfigurationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>;
 
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: Self::Config) -> Result<Self> {
+    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> {
         todo!()
     }
 
@@ -400,40 +400,40 @@ impl<D, NT> ReplyNode<SMRReply<D>> for AppNode<D, NT>
     where D: ApplicationData + 'static,
           NT: BatchedNetworkStub<SMRSysMsg<D>> {
     #[inline(always)]
-    fn send(&self, reply_type: ReplyType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+    fn send(&self, reply_type: RequestType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
         let message = match reply_type {
-            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
-            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+            RequestType::Ordered => OrderableMessage::OrderedReply(reply),
+            RequestType::Unordered => OrderableMessage::UnorderedReply(reply),
         };
 
         self.0.outgoing_stub().send(message, target, flush)
     }
 
     #[inline(always)]
-    fn send_signed(&self, reply_type: ReplyType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
+    fn send_signed(&self, reply_type: RequestType, reply: SMRReply<D>, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
         let message = match reply_type {
-            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
-            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+            RequestType::Ordered => OrderableMessage::OrderedReply(reply),
+            RequestType::Unordered => OrderableMessage::UnorderedReply(reply),
         };
 
         self.0.outgoing_stub().send_signed(message, target, flush)
     }
 
     #[inline(always)]
-    fn broadcast(&self, reply_type: ReplyType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+    fn broadcast(&self, reply_type: RequestType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         let message = match reply_type {
-            ReplyType::Ordered => OrderableMessage::OrderedReply(reply),
-            ReplyType::Unordered => OrderableMessage::UnorderedReply(reply),
+            RequestType::Ordered => OrderableMessage::OrderedReply(reply),
+            RequestType::Unordered => OrderableMessage::UnorderedReply(reply),
         };
 
         self.0.outgoing_stub().broadcast(message, targets)
     }
 
     #[inline(always)]
-    fn broadcast_signed(&self, reply_type: ReplyType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
+    fn broadcast_signed(&self, reply_type: RequestType, reply: SMRReply<D>, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         let message = match reply_type {
-            ReplyType::Ordered => { OrderableMessage::OrderedReply(reply) }
-            ReplyType::Unordered => { OrderableMessage::UnorderedReply(reply) }
+            RequestType::Ordered => { OrderableMessage::OrderedReply(reply) }
+            RequestType::Unordered => { OrderableMessage::UnorderedReply(reply) }
         };
 
         self.0.outgoing_stub().broadcast_signed(message, targets)

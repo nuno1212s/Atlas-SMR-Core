@@ -2,32 +2,34 @@ use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 
 use serde::{Deserialize, Serialize};
+use atlas_common::ordering::{Orderable, SeqNo};
 
 use atlas_communication::message::StoredMessage;
-use atlas_core::messages::{ForwardedProtocolMessage, ForwardedRequestsMessage, Protocol, VTMessage};
+use atlas_core::messages::{ForwardedProtocolMessage, ForwardedRequestsMessage, Protocol, SessionBased, VTMessage};
 use atlas_logging_core::log_transfer::networking::LogTransfer;
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::{SMRReply, SMRReq};
+use crate::exec::RequestType;
 
 ///A reply to an unordered request
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub enum OrderableMessage<D: ApplicationData> {
     ///An ordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
-    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize = "D::Request: Serialize"))]
     OrderedRequest(SMRReq<D>),
     ///An unordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
-    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize = "D::Request: Serialize"))]
     UnorderedRequest(SMRReq<D>),
     ///A reply to an ordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
-    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize= "D::Reply: Serialize"))]
+    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize = "D::Reply: Serialize"))]
     OrderedReply(SMRReply<D>),
     ///A reply to an unordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
-    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize= "D::Reply: Serialize"))]
+    #[serde(bound(deserialize = "D::Reply: Deserialize<'de>", serialize = "D::Reply: Serialize"))]
     UnorderedReply(SMRReply<D>),
 }
 
@@ -37,7 +39,7 @@ pub enum OrderableMessage<D: ApplicationData> {
 pub enum SystemMessage<D: ApplicationData, P, LT, VT> {
     ///Requests forwarded from other peers
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
-    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize= "D::Request: Serialize"))]
+    #[serde(bound(deserialize = "D::Request: Deserialize<'de>", serialize = "D::Request: Serialize"))]
     ForwardedRequestMessage(ForwardedRequestsMessage<SMRReq<D>>),
     ///A message related to the protocol
     ProtocolMessage(Protocol<P>),
@@ -96,7 +98,7 @@ impl<D, P, LT, VT> SystemMessage<D, P, LT, VT> where D: ApplicationData {
     }
 }
 
-impl<D, P, LT, VT> Clone for SystemMessage<D, P, LT, VT> where D: ApplicationData, P: Clone,  LT: Clone, VT: Clone {
+impl<D, P, LT, VT> Clone for SystemMessage<D, P, LT, VT> where D: ApplicationData, P: Clone, LT: Clone, VT: Clone {
     fn clone(&self) -> Self {
         match self {
             SystemMessage::ForwardedRequestMessage(fwd_req) => {
@@ -137,7 +139,7 @@ impl<D> Clone for OrderableMessage<D> where D: ApplicationData {
     }
 }
 
-impl<D, P,  LT, VT> Debug for SystemMessage<D, P, LT, VT>
+impl<D, P, LT, VT> Debug for SystemMessage<D, P, LT, VT>
     where D: ApplicationData,
           P: Clone, LT: Clone, VT: Clone {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -156,6 +158,91 @@ impl<D, P,  LT, VT> Debug for SystemMessage<D, P, LT, VT>
             }
             SystemMessage::ViewTransferMessage(_) => {
                 write!(f, "View Transfer message")
+            }
+        }
+    }
+}
+
+impl<D: ApplicationData> OrderableMessage<D> {
+
+    //Into SMR Request
+    pub fn into_smr_request(self) -> SMRReq<D> {
+        match self {
+            OrderableMessage::OrderedRequest(req) => {
+                req
+            }
+            OrderableMessage::UnorderedRequest(req) => {
+                req
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+    //Into SMR Reply
+    pub fn into_smr_reply(self) -> SMRReply<D> {
+        match self {
+            OrderableMessage::OrderedReply(rep) => {
+                rep
+            }
+            OrderableMessage::UnorderedReply(rep) => {
+                rep
+            }
+            _ => {
+                unreachable!()
+            }
+        }
+    }
+
+}
+
+impl<D: ApplicationData> From<(RequestType, SMRReq<D>)> for OrderableMessage<D> {
+    fn from(value: (RequestType, SMRReq<D>)) -> Self {
+        match value.0 {
+            RequestType::Ordered => {
+                OrderableMessage::OrderedRequest(value.1)
+            }
+            RequestType::Unordered => {
+                OrderableMessage::UnorderedRequest(value.1)
+            }
+        }
+    }
+}
+
+impl<D: ApplicationData> Orderable for OrderableMessage<D> {
+    fn sequence_number(&self) -> SeqNo {
+        match self {
+            OrderableMessage::OrderedRequest(req) => {
+                req.sequence_number()
+            }
+            OrderableMessage::UnorderedRequest(req) => {
+                req.sequence_number()
+            }
+            OrderableMessage::OrderedReply(rep) => {
+                rep.sequence_number()
+            }
+            OrderableMessage::UnorderedReply(rep) => {
+                rep.sequence_number()
+            }
+        }
+    }
+}
+
+impl<D: ApplicationData> SessionBased for OrderableMessage<D> {
+    fn session_number(&self) -> SeqNo {
+        match self {
+            OrderableMessage::OrderedRequest(req) => {
+                req.session_number()
+            }
+            OrderableMessage::UnorderedRequest(req) => {
+                req.session_number()
+            }
+            OrderableMessage::OrderedReply(rep) => {
+                rep.session_number()
+            }
+            OrderableMessage::UnorderedReply(rep) => {
+                rep.session_number()
             }
         }
     }

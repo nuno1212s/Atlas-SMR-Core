@@ -26,20 +26,20 @@ pub trait StateExecutorTrait {
     fn start_polling_state(&self) -> Result<()>;
 }
 
-pub enum ReplyType {
+pub enum RequestType {
     Ordered,
     Unordered,
 }
 
 /// Trait for a network node capable of sending replies to clients
 pub trait ReplyNode<RP>: Send + Sync {
-    fn send(&self, reply_type: ReplyType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
+    fn send(&self, reply_type: RequestType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
 
-    fn send_signed(&self, reply_type: ReplyType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
+    fn send_signed(&self, reply_type: RequestType, reply: RP, target: NodeId, flush: bool) -> Result<()>;
 
-    fn broadcast(&self, reply_type: ReplyType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
+    fn broadcast(&self, reply_type: RequestType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
 
-    fn broadcast_signed(&self, reply_type: ReplyType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
+    fn broadcast_signed(&self, reply_type: RequestType, reply: RP, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>>;
 }
 
 pub struct WrappedExecHandle<R>(pub ExecutorHandle<R>);
@@ -53,7 +53,7 @@ impl<R> Clone for WrappedExecHandle<R> {
 }
 
 impl<R> WrappedExecHandle<R> {
-    fn transform_update_batch(decision: BatchedDecision<SMRRawReq<R>>) -> UpdateBatch<R> {
+    pub fn transform_update_batch(decision: BatchedDecision<SMRRawReq<R>>) -> UpdateBatch<R> {
         let mut update_batch = UpdateBatch::new_with_cap(decision.sequence_number(), decision.len());
 
         decision.into_inner().into_iter().for_each(|request| {
@@ -81,5 +81,13 @@ impl<R> DecisionExecutorHandle<SMRRawReq<R>> for WrappedExecHandle<R>
 
     fn queue_update_unordered(&self, requests: BatchedDecision<SMRRawReq<R>>) -> Result<()> {
         todo!()
+    }
+}
+
+impl<R> Deref for WrappedExecHandle<R> {
+    type Target = ExecutorHandle<R>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
