@@ -18,7 +18,7 @@ use atlas_smr_application::serialize::ApplicationData;
 
 use crate::{SMRRawReq, SMRReply, SMRReq};
 use crate::message::{OrderableMessage};
-use crate::networking::{AppNode, NodeWrap};
+use crate::networking::{AppNode, ReplicaNodeWrapper};
 use crate::serialize::SMRSysMsg;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 

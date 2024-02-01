@@ -1,13 +1,18 @@
+use std::marker::PhantomData;
 use std::sync::Arc;
 use atlas_common::node_id::NodeId;
 use atlas_common::error::*;
-use atlas_communication::byte_stub::ByteNetworkStub;
+use atlas_communication::byte_stub::{ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, NodeIncomingStub, NodeStubController, PeerConnectionManager};
 use atlas_communication::byte_stub::connections::NetworkConnectionController;
+use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
+use atlas_communication::lookup_table::EnumLookupTable;
+use atlas_communication::NetworkManagement;
 use atlas_communication::reconfiguration::{NetworkInformationProvider, ReconfigurationMessageHandler};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, NetworkStub, ReconfigurationStub, RegularNetworkStub};
 use atlas_core::serialize::NoProtocol;
 use atlas_smr_application::serialize::ApplicationData;
+use crate::networking::PeerCNNMan;
 use crate::serialize::{Service, SMRSysMsg, StateSys};
 
 /// The Client node abstractions, different from the replica abstractions
@@ -30,30 +35,34 @@ pub trait SMRClientNetworkNode<NI, RM, D> where RM: Serializable, D: Application
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
 
     /// Bootstrap the node
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
 }
 
 /// Node wrapper for the client side node.
 /// Used to wrap the types and make this into something simple and effective to use
-pub struct CLINodeWrapper<CN, NC, NI, RM, D>
+pub struct CLINodeWrapper<CN, BN, NI, RM, D>
     where NI: NetworkInformationProvider,
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
-          NC: NetworkConnectionController,
+          BN: ByteNetworkController,
           D: ApplicationData + 'static {
-    reconf_stub: Arc<ReconfigurationStub<NI, CN, NC, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>,
-    app_stub: Arc<ApplicationStub<NI, CN, NC, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>,
+    reconf_stub: Arc<ReconfigurationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>,
+    app_stub: Arc<ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>,
 }
 
-impl<CN, NC, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, NC, NI, RM, D>
+type CLIPeerCNNMan<CN, RM, D> = PeerConnectionManager<CN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
+type CLIPeerInn<RM, D> = PeerIncomingConnection<RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
+
+impl<CN, BN, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, BN, NI, RM, D>
     where NI: NetworkInformationProvider,
           RM: Serializable + 'static,
+          D: ApplicationData + 'static,
           CN: ByteNetworkStub + 'static,
-          NC: NetworkConnectionController,
-          D: ApplicationData + 'static {
-    type Config = ();
-    type AppNode = ApplicationStub<NI, CN, NC, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
-    type ReconfigurationNode = ReconfigurationStub<NI, CN, NC, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
+          BN: ByteNetworkControllerInit<NI, CLIPeerCNNMan<CN, RM, D>, CN, CLIPeerInn<RM, D>>, {
+    type Config = (BN::Config);
+
+    type AppNode = ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
+    type ReconfigurationNode = ReconfigurationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
 
     fn id(&self) -> NodeId {
         self.reconf_stub.id()
@@ -67,7 +76,14 @@ impl<CN, NC, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, N
         &self.reconf_stub
     }
 
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> {
-        todo!()
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> {
+        let (cfg ) = config;
+
+        let (arc, reconf) = NetworkManagement::<NI, CN, BN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>::initialize(network_info, cfg)?;
+
+        Ok((Self {
+            reconf_stub: Arc::new(arc.init_reconf_stub()),
+            app_stub: Arc::new(arc.init_app_stub()),
+        }, reconf))
     }
 }

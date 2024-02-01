@@ -1,5 +1,6 @@
 #![feature(associated_type_defaults)]
 #![feature(async_fn_in_trait)]
+#![feature(inherent_associated_types)]
 
 use atlas_core::messages::{ReplyMessage, RequestMessage};
 use atlas_smr_application::serialize::ApplicationData;

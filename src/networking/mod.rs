@@ -7,9 +7,12 @@ use std::time::Duration;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
-use atlas_communication::byte_stub::ByteNetworkStub;
+use atlas_communication::byte_stub::{ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, NodeIncomingStub, NodeStubController, PeerConnectionManager};
 use atlas_communication::byte_stub::connections::NetworkConnectionController;
+use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
+use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{Buf, SerializedMessage, StoredMessage, StoredSerializedMessage};
+use atlas_communication::NetworkManagement;
 use atlas_communication::reconfiguration::{NetworkInformationProvider, ReconfigurationMessageHandler};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub, NetworkStub, OperationStub, ReconfigurationStub, RegularNetworkStub, StateProtocolStub};
@@ -31,6 +34,8 @@ use crate::state_transfer::networking::StateTransferSendNode;
 pub mod signature_ver;
 pub mod client;
 
+pub type RType<D> = SMRSysMsg<D>;
+
 pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
@@ -39,6 +44,7 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
           S: StateTransferMessage + 'static,
           NI: NetworkInformationProvider,
           RM: Serializable {
+
     type Config;
 
     /// The type that encapsulates the necessary wrapping and unwrapping of the messages
@@ -51,8 +57,6 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
 
     type ReconfigurationNode: RegularNetworkStub<RM>;
 
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
-
     fn id(&self) -> NodeId;
 
     fn protocol_node(&self) -> &Arc<Self::ProtocolNode>;
@@ -62,9 +66,11 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
     fn state_transfer_node(&self) -> &Arc<Self::StateTransferNode>;
 
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
+
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
 }
 
-pub struct NodeWrap<CN, NC, NI, RM, D, P, L, VT, S>
+pub struct ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
@@ -73,14 +79,17 @@ pub struct NodeWrap<CN, NC, NI, RM, D, P, L, VT, S>
           NI: NetworkInformationProvider,
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
-          NC: NetworkConnectionController {
-    op_stub: Arc<ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
-    state_transfer_stub: Arc<StateTransferNode<S, StateProtocolStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
-    app_stub: Arc<AppNode<D, ApplicationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
-    reconf_stub: Arc<ReconfigurationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>,
+          BN: ByteNetworkController, {
+    op_stub: Arc<ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
+    state_transfer_stub: Arc<StateTransferNode<S, StateProtocolStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
+    app_stub: Arc<AppNode<D, ApplicationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>>,
+    reconf_stub: Arc<ReconfigurationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>,
 }
 
-impl<CN, NC, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S> for NodeWrap<CN, NC, NI, RM, D, P, L, VT, S>
+type PeerCNNMan<CN, RM, D, P, L, VT, S> = PeerConnectionManager<CN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>, EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+type PeerInn<RM, D, P, L, VT, S> = PeerIncomingConnection<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>, EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+
+impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S> for ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
@@ -89,16 +98,26 @@ impl<CN, NC, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
-          NC: NetworkConnectionController {
-    type Config = ();
+          BN: ByteNetworkControllerInit<NI, PeerCNNMan<CN, RM, D, P, L, VT, S>, CN, PeerInn<RM, D, P, L, VT, S>>, {
+    type Config = (BN::Config);
 
-    type ProtocolNode = ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
-    type ApplicationNode = AppNode<D, ApplicationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
-    type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
-    type ReconfigurationNode = ReconfigurationStub<NI, CN, NC, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>;
+    type ProtocolNode = ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+    type ApplicationNode = AppNode<D, ApplicationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+    type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+    type ReconfigurationNode = ReconfigurationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>;
 
-    async fn bootstrap(node_id: NodeId, network_info: Arc<NI>, conf: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> {
-        todo!()
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)>
+        where Self: Sized {
+        let (cfg) = config;
+
+        let (network_mngmt, reconf) = NetworkManagement::<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>::initialize(network_info, cfg)?;
+
+        Ok((Self {
+            op_stub: Arc::new(ProtocolNode(network_mngmt.init_op_stub(), Default::default())),
+            state_transfer_stub: Arc::new(StateTransferNode(network_mngmt.init_state_stub(), Default::default())),
+            app_stub: Arc::new(AppNode(network_mngmt.init_app_stub(), Default::default())),
+            reconf_stub: Arc::new(network_mngmt.init_reconf_stub()),
+        }, reconf))
     }
 
     #[inline(always)]
