@@ -44,7 +44,6 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
           S: StateTransferMessage + 'static,
           NI: NetworkInformationProvider,
           RM: Serializable {
-
     type Config;
 
     /// The type that encapsulates the necessary wrapping and unwrapping of the messages
@@ -110,10 +109,10 @@ impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
         where Self: Sized {
         let (cfg) = config;
 
-        let (network_mngmt, reconf) = NetworkManagement::<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>::initialize(network_info, cfg)?;
+        let (network_mngmt, reconf) = NetworkManagement::<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>::initialize(network_info.clone(), cfg)?;
 
         Ok((Self {
-            op_stub: Arc::new(ProtocolNode(network_mngmt.init_op_stub(), Default::default())),
+            op_stub: Arc::new(ProtocolNode(network_mngmt.init_op_stub(), network_info, Default::default())),
             state_transfer_stub: Arc::new(StateTransferNode(network_mngmt.init_state_stub(), Default::default())),
             app_stub: Arc::new(AppNode(network_mngmt.init_app_stub(), Default::default())),
             reconf_stub: Arc::new(network_mngmt.init_reconf_stub()),
@@ -146,7 +145,7 @@ impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
     }
 }
 
-pub struct ProtocolNode<NI, D, P, L, VT, NT>(NT, PhantomData<fn() -> (NI, D, P, L, VT)>)
+pub struct ProtocolNode<NI, D, P, L, VT, NT>(NT, Arc<NI>, PhantomData<fn() -> (NI, D, P, L, VT)>)
     where D: ApplicationData + 'static,
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
@@ -167,6 +166,7 @@ impl<NI, D, P, L, VT, NT> NetworkStub<Service<D, P, L, VT>> for ProtocolNode<NI,
           P: 'static + OrderingProtocolMessage<SMRReq<D>>,
           VT: 'static + ViewTransferProtocolMessage,
           NT: RegularNetworkStub<Service<D, P, L, VT>>,
+          NI: NetworkInformationProvider
 {
     type Outgoing = NT::Outgoing;
     type Connections = NT::Connections;
@@ -182,7 +182,7 @@ impl<NI, D, P, L, VT, NT> NetworkStub<Service<D, P, L, VT>> for ProtocolNode<NI,
     }
 
     #[inline(always)]
-    fn connections(&self) -> &Self::Connections {
+    fn connections(&self) -> &Arc<Self::Connections> {
         self.0.connections()
     }
 }
@@ -192,7 +192,8 @@ impl<NI, D, P, L, VT, NT> RegularNetworkStub<Service<D, P, L, VT>> for ProtocolN
           P: OrderingProtocolMessage<SMRReq<D>> + 'static,
           L: LogTransferMessage<SMRReq<D>, P> + 'static,
           VT: ViewTransferProtocolMessage + 'static,
-          NT: RegularNetworkStub<Service<D, P, L, VT>> {
+          NT: RegularNetworkStub<Service<D, P, L, VT>>,
+          NI: NetworkInformationProvider {
     type Incoming = NT::Incoming;
 
     #[inline(always)]
@@ -209,12 +210,14 @@ impl<NI, D, P, L, VT, NT> OrderProtocolSendNode<SMRReq<D>, P> for ProtocolNode<N
           NI: NetworkInformationProvider + 'static {
     type NetworkInfoProvider = NI;
 
+    #[inline(always)]
     fn id(&self) -> NodeId {
-        todo!()
+        self.0.id()
     }
 
+    #[inline(always)]
     fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        todo!()
+        &self.1
     }
 
     #[inline(always)]
@@ -277,9 +280,11 @@ impl<NI, D, P, L, VT, NT> LogTransferSendNode<SMRReq<D>, P, L> for ProtocolNode<
     where D: ApplicationData, P: OrderingProtocolMessage<SMRReq<D>>,
           L: LogTransferMessage<SMRReq<D>, P>,
           VT: ViewTransferProtocolMessage,
-          NT: RegularNetworkStub<Service<D, P, L, VT>> {
+          NT: RegularNetworkStub<Service<D, P, L, VT>>,
+          NI: NetworkInformationProvider {
+    #[inline(always)]
     fn id(&self) -> NodeId {
-        todo!()
+        self.0.id()
     }
 
     #[inline(always)]
@@ -342,12 +347,14 @@ impl<NI, D, P, L, VT, NT> ViewTransferProtocolSendNode<VT> for ProtocolNode<NI, 
 {
     type NetworkInfoProvider = NI;
 
+    #[inline(always)]
     fn id(&self) -> NodeId {
-        todo!()
+        self.0.id()
     }
 
+    #[inline(always)]
     fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        todo!()
+        &self.1
     }
 
     #[inline(always)]
@@ -476,7 +483,7 @@ impl<S, NT> NetworkStub<StateSys<S>> for StateTransferNode<S, NT>
     }
 
     #[inline(always)]
-    fn connections(&self) -> &Self::Connections {
+    fn connections(&self) -> &Arc<Self::Connections> {
         self.0.connections()
     }
 }
@@ -496,8 +503,9 @@ impl<S, NT> StateTransferSendNode<S> for StateTransferNode<S, NT>
     where S: StateTransferMessage,
           NT: RegularNetworkStub<StateSys<S>>
 {
+    #[inline(always)]
     fn id(&self) -> NodeId {
-        todo!()
+        self.0.id()
     }
 
     #[inline(always)]
@@ -505,22 +513,27 @@ impl<S, NT> StateTransferSendNode<S> for StateTransferNode<S, NT>
         self.0.outgoing_stub().send(message, target, flush)
     }
 
+    #[inline(always)]
     fn send_signed(&self, message: S::StateTransferMessage, target: NodeId, flush: bool) -> atlas_common::error::Result<()> {
         self.0.outgoing_stub().send_signed(message, target, flush)
     }
 
+    #[inline(always)]
     fn broadcast(&self, message: S::StateTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         self.0.outgoing_stub().broadcast(message, targets)
     }
 
+    #[inline(always)]
     fn broadcast_signed(&self, message: S::StateTransferMessage, targets: impl Iterator<Item=NodeId>) -> std::result::Result<(), Vec<NodeId>> {
         self.0.outgoing_stub().broadcast_signed(message, targets)
     }
 
+    #[inline(always)]
     fn serialize_digest_message(&self, message: S::StateTransferMessage) -> atlas_common::error::Result<(SerializedMessage<S::StateTransferMessage>, Digest)> {
         self.0.outgoing_stub().serialize_digest_message(message)
     }
 
+    #[inline(always)]
     fn broadcast_serialized(&self, messages: BTreeMap<NodeId, StoredSerializedMessage<S::StateTransferMessage>>) -> std::result::Result<(), Vec<NodeId>> {
         self.0.outgoing_stub().broadcast_serialized(messages)
     }
