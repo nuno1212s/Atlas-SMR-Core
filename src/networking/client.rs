@@ -1,9 +1,8 @@
-use std::marker::PhantomData;
 use std::sync::Arc;
-use atlas_common::node_id::NodeId;
+
 use atlas_common::error::*;
-use atlas_communication::byte_stub::{ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, NodeIncomingStub, NodeStubController, PeerConnectionManager};
-use atlas_communication::byte_stub::connections::NetworkConnectionController;
+use atlas_common::node_id::NodeId;
+use atlas_communication::byte_stub::{ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, PeerConnectionManager};
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::NetworkManagement;
@@ -12,8 +11,8 @@ use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ApplicationStub, NetworkStub, ReconfigurationStub, RegularNetworkStub};
 use atlas_core::serialize::NoProtocol;
 use atlas_smr_application::serialize::ApplicationData;
-use crate::networking::PeerCNNMan;
-use crate::serialize::{Service, SMRSysMsg, StateSys};
+
+use crate::serialize::SMRSysMsg;
 
 /// The Client node abstractions, different from the replica abstractions
 pub trait SMRClientNetworkNode<NI, RM, D> where RM: Serializable, D: ApplicationData + 'static {
@@ -50,7 +49,7 @@ pub struct CLINodeWrapper<CN, BN, NI, RM, D>
     app_stub: Arc<ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>,
 }
 
-type CLIPeerCNNMan<CN, RM, D> = PeerConnectionManager<CN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
+type CLIPeerCNNMan<NI, CN, RM, D> = PeerConnectionManager<NI, CN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
 type CLIPeerInn<RM, D> = PeerIncomingConnection<RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
 
 impl<CN, BN, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, BN, NI, RM, D>
@@ -58,7 +57,7 @@ impl<CN, BN, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, B
           RM: Serializable + 'static,
           D: ApplicationData + 'static,
           CN: ByteNetworkStub + 'static,
-          BN: ByteNetworkControllerInit<NI, CLIPeerCNNMan<CN, RM, D>, CN, CLIPeerInn<RM, D>>, {
+          BN: ByteNetworkControllerInit<NI, CLIPeerCNNMan<NI, CN, RM, D>, CN, CLIPeerInn<RM, D>>, {
     type Config = (BN::Config);
 
     type AppNode = ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;

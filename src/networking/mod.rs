@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +7,6 @@ use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use atlas_communication::byte_stub::{ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, NodeIncomingStub, NodeStubController, PeerConnectionManager};
-use atlas_communication::byte_stub::connections::NetworkConnectionController;
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{Buf, SerializedMessage, StoredMessage, StoredSerializedMessage};
@@ -19,6 +17,7 @@ use atlas_communication::stub::{ApplicationStub, BatchedModuleIncomingStub, Batc
 use atlas_core::messages::ForwardedRequestsMessage;
 use atlas_core::ordering_protocol::networking::{OrderProtocolSendNode, ViewTransferProtocolSendNode};
 use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, ViewTransferProtocolMessage};
+use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
 use atlas_logging_core::log_transfer::networking::LogTransferSendNode;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::serialize::ApplicationData;
@@ -26,7 +25,6 @@ use atlas_smr_application::serialize::ApplicationData;
 use crate::{SMRReply, SMRReq};
 use crate::exec::{ReplyNode, RequestType};
 use crate::message::{OrderableMessage, SystemMessage};
-use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
 use crate::serialize::{Service, ServiceMessage, SMRSysMessage, SMRSysMsg, StateSys};
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
@@ -85,7 +83,7 @@ pub struct ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
     reconf_stub: Arc<ReconfigurationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>,
 }
 
-type PeerCNNMan<CN, RM, D, P, L, VT, S> = PeerConnectionManager<CN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>, EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
+type PeerCNNMan<NI, CN, RM, D, P, L, VT, S> = PeerConnectionManager<NI, CN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>, EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
 type PeerInn<RM, D, P, L, VT, S> = PeerIncomingConnection<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>, EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
 
 impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S> for ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
@@ -97,7 +95,7 @@ impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
           CN: ByteNetworkStub + 'static,
-          BN: ByteNetworkControllerInit<NI, PeerCNNMan<CN, RM, D, P, L, VT, S>, CN, PeerInn<RM, D, P, L, VT, S>>, {
+          BN: ByteNetworkControllerInit<NI, PeerCNNMan<NI, CN, RM, D, P, L, VT, S>, CN, PeerInn<RM, D, P, L, VT, S>>, {
     type Config = (BN::Config);
 
     type ProtocolNode = ProtocolNode<NI, D, P, L, VT, OperationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
