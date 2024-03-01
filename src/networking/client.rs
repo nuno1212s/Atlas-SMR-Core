@@ -34,7 +34,7 @@ pub trait SMRClientNetworkNode<NI, RM, D> where RM: Serializable, D: Application
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
 
     /// Bootstrap the node
-    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config, reconf: ReconfigurationMessageHandler) -> Result<Self> where Self: Sized;
 }
 
 /// Node wrapper for the client side node.
@@ -53,7 +53,7 @@ type CLIPeerCNNMan<NI, CN, RM, D> = PeerConnectionManager<NI, CN, RM, NoProtocol
 type CLIPeerInn<RM, D> = PeerIncomingConnection<RM, NoProtocol, NoProtocol, SMRSysMsg<D>, EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>>;
 
 impl<CN, BN, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, BN, NI, RM, D>
-    where NI: NetworkInformationProvider,
+    where NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
           D: ApplicationData + 'static,
           CN: ByteNetworkStub + 'static,
@@ -75,14 +75,14 @@ impl<CN, BN, NI, RM, D> SMRClientNetworkNode<NI, RM, D> for CLINodeWrapper<CN, B
         &self.reconf_stub
     }
 
-    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> {
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config, reconf: ReconfigurationMessageHandler) -> Result<Self> {
         let (cfg ) = config;
 
-        let (arc, reconf) = NetworkManagement::<NI, CN, BN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>::initialize(network_info, cfg)?;
+        let arc = NetworkManagement::<NI, CN, BN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>::initialize(network_info, cfg, reconf)?;
 
-        Ok((Self {
+        Ok(Self {
             reconf_stub: Arc::new(arc.init_reconf_stub()),
             app_stub: Arc::new(arc.init_app_stub()),
-        }, reconf))
+        })
     }
 }

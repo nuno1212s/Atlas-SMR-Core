@@ -12,7 +12,7 @@ pub mod message;
 pub mod state_transfer;
 pub mod serialize;
 pub mod request_pre_processing;
-mod metric;
+pub mod metric;
 
 pub type SMRReq<D: ApplicationData> = RequestMessage<D::Request>;
 pub type SMRRawReq<R> = RequestMessage<R>;

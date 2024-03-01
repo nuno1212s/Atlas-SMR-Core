@@ -64,7 +64,7 @@ pub trait SMRReplicaNetworkNode<NI, RM, D, P, L, VT, S>
 
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
 
-    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)> where Self: Sized;
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config, reconf: ReconfigurationMessageHandler) -> Result<Self> where Self: Sized;
 }
 
 pub struct ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
@@ -103,18 +103,18 @@ impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
     type StateTransferNode = StateTransferNode<S, StateProtocolStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>>;
     type ReconfigurationNode = ReconfigurationStub<NI, CN, BN::ConnectionController, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>;
 
-    async fn bootstrap(network_info: Arc<NI>, config: Self::Config) -> Result<(Self, ReconfigurationMessageHandler)>
+    async fn bootstrap(network_info: Arc<NI>, config: Self::Config, reconf: ReconfigurationMessageHandler) -> Result<Self>
         where Self: Sized {
         let (cfg) = config;
 
-        let (network_mngmt, reconf) = NetworkManagement::<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>::initialize(network_info.clone(), cfg)?;
+        let network_mngmt = NetworkManagement::<NI, CN, BN, RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>::initialize(network_info.clone(), cfg, reconf)?;
 
-        Ok((Self {
+        Ok(Self {
             op_stub: Arc::new(ProtocolNode(network_mngmt.init_op_stub(), network_info, Default::default())),
             state_transfer_stub: Arc::new(StateTransferNode(network_mngmt.init_state_stub(), Default::default())),
             app_stub: Arc::new(AppNode(network_mngmt.init_app_stub(), Default::default())),
             reconf_stub: Arc::new(network_mngmt.init_reconf_stub()),
-        }, reconf))
+        })
     }
 
     #[inline(always)]
