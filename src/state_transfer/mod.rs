@@ -10,14 +10,14 @@ use atlas_common::globals::ReadOnly;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::message::StoredMessage;
 
-use atlas_core::ordering_protocol::{ExecutionResult};
-use atlas_core::ordering_protocol::networking::serialize::NetworkView;
-use atlas_core::timeouts::RqTimeout;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
+use atlas_core::ordering_protocol::networking::serialize::NetworkView;
+use atlas_core::ordering_protocol::ExecutionResult;
+use atlas_core::timeouts::RqTimeout;
 
-pub mod monolithic_state;
 pub mod divisible_state;
+pub mod monolithic_state;
 pub mod networking;
 
 /// Represents a local checkpoint.
@@ -68,7 +68,9 @@ impl<S> Checkpoint<S> {
         &self.app_state
     }
 
-    pub fn digest(&self) -> &Digest { &self.digest }
+    pub fn digest(&self) -> &Digest {
+        &self.digest
+    }
 
     /// Returns the inner values within this local checkpoint.
     pub fn into_inner(self) -> (SeqNo, S, Digest) {
@@ -119,20 +121,31 @@ pub trait StateTransferProtocol<S> {
 
     /// Request the latest state from the rest of replicas
     fn request_latest_state<V>(&mut self, view: V) -> Result<()>
-        where V: NetworkView,;
+    where
+        V: NetworkView;
 
     /// Poll the state transfer protocol to check if there are any novel messages to receive
-    fn poll(&mut self,) -> Result<STPollResult<CstM<Self::Serialization>>>;
+    fn poll(&mut self) -> Result<STPollResult<CstM<Self::Serialization>>>;
 
     /// Handle a state transfer protocol message that was received while executing the ordering protocol
-    fn handle_off_ctx_message<V>(&mut self,view: V, message: StoredMessage<CstM<Self::Serialization>>) -> Result<()>
-        where V: NetworkView;
+    fn handle_off_ctx_message<V>(
+        &mut self,
+        view: V,
+        message: StoredMessage<CstM<Self::Serialization>>,
+    ) -> Result<()>
+    where
+        V: NetworkView;
 
     /// Process a state transfer protocol message, received from other replicas
     /// We also provide a mutable reference to the stateful ordering protocol, so the
     /// state can be installed (if that's the case)
-    fn process_message<V>(&mut self,  view: V, message: StoredMessage<CstM<Self::Serialization>>) -> Result<STResult>
-        where V: NetworkView;
+    fn process_message<V>(
+        &mut self,
+        view: V,
+        message: StoredMessage<CstM<Self::Serialization>>,
+    ) -> Result<STResult>
+    where
+        V: NetworkView;
 
     /// Handle the replica wanting to request a state from the application
     /// The state transfer protocol then sees if the conditions are met to receive it
@@ -141,11 +154,16 @@ pub trait StateTransferProtocol<S> {
 
     /// Handle a timeout being received from the timeout layer
     fn handle_timeout<V>(&mut self, view: V, timeout: Vec<RqTimeout>) -> Result<STTimeoutResult>
-        where V: NetworkView;
+    where
+        V: NetworkView;
 }
 
 impl<S> Debug for Checkpoint<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Checkpoint {{ seq: {:?}, digest: {:?} }}", self.seq, self.digest)
+        write!(
+            f,
+            "Checkpoint {{ seq: {:?}, digest: {:?} }}",
+            self.seq, self.digest
+        )
     }
 }
