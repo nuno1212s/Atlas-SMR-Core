@@ -9,6 +9,8 @@ edition = "2021"
 
 serialize_serde = ["serde", "atlas-common/serialize_serde", "atlas-core/serialize_serde", "atlas-logging-core/serialize_serde"]
 
+default = ["serialize_serde"]
+
 [dependencies]
 anyhow = "1.0"
 thiserror = "1.0"
