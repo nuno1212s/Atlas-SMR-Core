@@ -4,6 +4,7 @@ use atlas_common::error::*;
 use atlas_common::maybe_vec::MaybeVec;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::Orderable;
+use atlas_communication::message::StoredMessage;
 use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{ModuleOutgoingStub, NetworkStub};
@@ -14,7 +15,7 @@ use atlas_core::ordering_protocol::networking::serialize::{
 };
 use atlas_core::ordering_protocol::BatchedDecision;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
-use atlas_smr_application::app::UpdateBatch;
+use atlas_smr_application::app::{UnorderedBatch, UpdateBatch};
 use atlas_smr_application::serialize::ApplicationData;
 use atlas_smr_application::ExecutorHandle;
 
@@ -86,6 +87,25 @@ impl<R> WrappedExecHandle<R> {
 
         update_batch
     }
+    
+    fn transform_unordered_batch(decision: Vec<StoredMessage<SMRRawReq<R>>>) -> UnorderedBatch<R> {
+        let mut update_batch =
+            UnorderedBatch::new_with_cap(decision.len());
+
+        decision.into_iter().for_each(|request| {
+            let (header, message) = request.into_inner();
+
+            update_batch.add(
+                header.from(),
+                message.session_number(),
+                message.sequence_number(),
+                message.into_inner_operation(),
+            );
+        });
+
+        update_batch
+    }
+    
 }
 
 impl<R> DecisionExecutorHandle<SMRRawReq<R>> for WrappedExecHandle<R>
@@ -105,8 +125,8 @@ where
         self.0.queue_update(Self::transform_update_batch(batch))
     }
 
-    fn queue_update_unordered(&self, requests: BatchedDecision<SMRRawReq<R>>) -> Result<()> {
-        todo!()
+    fn queue_update_unordered(&self, requests: Vec<StoredMessage<SMRRawReq<R>>>) -> Result<()> {
+        self.0.queue_update_unordered(Self::transform_unordered_batch(requests))
     }
 }
 

@@ -40,9 +40,9 @@ const RQ_PRE_PROCESSING_ORCHESTRATOR: &str = "RQ-PRE-PROCESSING-ORCHESTRATOR";
 /// The orchestrator for all of the request pre processing.
 /// Decides which workers will get which requests and then handles the logic necessary
 struct RequestPreProcessingOrchestrator<WD, D, NT>
-where
-    D: ApplicationData + 'static,
-    WD: Send,
+    where
+        D: ApplicationData + 'static,
+        WD: Send,
 {
     /// How many workers should we have
     thread_count: usize,
@@ -50,8 +50,6 @@ where
     work_comms: Vec<RequestPreProcessingWorkerHandle<SMRSysMessage<D>>>,
     /// The RX end for a work channel for the request pre processor
     ordered_work_receiver: ChannelSyncRx<PreProcessorMessage<SMRReq<D>>>,
-
-    unordered_work_receiver: ChannelSyncRx<PreProcessorMessage<SMRReq<D>>>,
     /// The network node so we can poll messages received from the clients
     network_node: Arc<NT>,
     /// How we are going to divide the work between workers
@@ -59,15 +57,15 @@ where
 }
 
 impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
-where
-    D: ApplicationData,
-    WD: Send,
-{
-    fn run(mut self)
     where
         D: ApplicationData,
-        NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: Send,
+{
+    fn run(mut self)
+        where
+            D: ApplicationData,
+            NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
+            WD: WorkPartitioner<SMRSysMessage<D>>,
     {
         loop {
             self.process_client_rqs();
@@ -76,10 +74,10 @@ where
     }
 
     fn process_client_rqs(&mut self)
-    where
-        D: ApplicationData,
-        NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        where
+            D: ApplicationData,
+            NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
+            WD: WorkPartitioner<SMRSysMessage<D>>,
     {
         let messages = match self
             .network_node
@@ -115,9 +113,9 @@ where
     }
 
     fn process_work_messages(&mut self)
-    where
-        D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        where
+            D: ApplicationData,
+            WD: WorkPartitioner<SMRSysMessage<D>>,
     {
         while let Ok(work_recved) = self.ordered_work_receiver.try_recv() {
             match work_recved {
@@ -181,9 +179,9 @@ where
     }
 
     fn process_decided_batch(&self, decided: Vec<ClientRqInfo>)
-    where
-        D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        where
+            D: ApplicationData,
+            WD: WorkPartitioner<SMRSysMessage<D>>,
     {
         let start = Instant::now();
 
@@ -272,9 +270,9 @@ where
 
     /// Process stopped requests by forwarding them to the appropriate worker.
     fn process_stopped_rqs(&self, rq_type: RequestType, rqs: Vec<StoredMessage<SMRReq<D>>>)
-    where
-        D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        where
+            D: ApplicationData,
+            WD: WorkPartitioner<SMRSysMessage<D>>,
     {
         let start = Instant::now();
 
@@ -327,12 +325,12 @@ where
             &self.work_comms,
             iter::zip(worker_messages, worker_responses),
         )
-        .map(|(worker, (messages, (tx, rx)))| {
-            worker.send(PreProcessorWorkMessage::ClonePendingRequests(messages, tx));
+            .map(|(worker, (messages, (tx, rx)))| {
+                worker.send(PreProcessorWorkMessage::ClonePendingRequests(messages, tx));
 
-            rx
-        })
-        .collect();
+                rx
+            })
+            .collect();
 
         for rx in rxs {
             let rqs = rx.recv().unwrap();
@@ -352,16 +350,16 @@ where
 
 pub struct OrderedRqHandles<O>(RequestPreProcessor<O>, BatchOutput<O>);
 
-pub struct UnorderedRqHandles<O>(RequestPreProcessor<O>, BatchOutput<O>);
+pub struct UnorderedRqHandles<O>(BatchOutput<O>);
 
 pub fn initialize_request_pre_processor<WD, D, NT>(
     concurrency: usize,
     node: &Arc<NT>,
 ) -> (OrderedRqHandles<SMRReq<D>>, UnorderedRqHandles<SMRReq<D>>)
-where
-    D: ApplicationData + Send + 'static,
-    NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
-    WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
+    where
+        D: ApplicationData + Send + 'static,
+        NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
+        WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
 {
     let (batch_tx, receiver) =
         new_bounded_sync(PROPOSER_QUEUE_SIZE, Some("Pre Processor Batch Output"));
@@ -373,11 +371,6 @@ where
 
     let (work_sender, work_rcvr) =
         new_bounded_sync(PROPOSER_QUEUE_SIZE, Some("Pre Processor Work handle"));
-
-    let (unordered_work_sender, unordered_work_rcvr) = new_bounded_sync(
-        PROPOSER_QUEUE_SIZE,
-        Some("Pre Processor Unordered Work handle"),
-    );
 
     let mut work_comms = Vec::with_capacity(concurrency);
 
@@ -392,7 +385,6 @@ where
         thread_count: concurrency,
         work_comms,
         ordered_work_receiver: work_rcvr,
-        unordered_work_receiver: unordered_work_rcvr,
         network_node: node.clone(),
         work_divider: Default::default(),
     };
@@ -401,13 +393,13 @@ where
 
     (
         OrderedRqHandles(work_sender.into(), receiver.into()),
-        UnorderedRqHandles(unordered_work_sender.into(), unordered_receiver.into()),
+        UnorderedRqHandles(unordered_receiver.into()),
     )
 }
 
 fn init_for_workers<V, F>(thread_count: usize, init: F) -> Vec<V>
-where
-    F: FnMut() -> V,
+    where
+        F: FnMut() -> V,
 {
     let mut worker_message: Vec<V> = std::iter::repeat_with(init).take(thread_count).collect();
 
@@ -423,10 +415,10 @@ fn init_worker_vecs<O>(thread_count: usize, message_count: usize) -> Vec<Vec<O>>
 }
 
 fn launch_orchestrator_thread<WD, D, NT>(orchestrator: RequestPreProcessingOrchestrator<WD, D, NT>)
-where
-    D: ApplicationData + Send + 'static,
-    NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
-    WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
+    where
+        D: ApplicationData + Send + 'static,
+        NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
+        WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
 {
     std::thread::Builder::new()
         .name(format!("{}", RQ_PRE_PROCESSING_ORCHESTRATOR))
@@ -442,8 +434,16 @@ impl<O> Into<(RequestPreProcessor<O>, BatchOutput<O>)> for OrderedRqHandles<O> {
     }
 }
 
-impl<O> Into<(RequestPreProcessor<O>, BatchOutput<O>)> for UnorderedRqHandles<O> {
-    fn into(self) -> (RequestPreProcessor<O>, BatchOutput<O>) {
-        (self.0, self.1)
+impl<O> Into<BatchOutput<O>> for UnorderedRqHandles<O> {
+    fn into(self) -> BatchOutput<O> {
+        self.0
+    }
+}
+
+impl<O> Deref for UnorderedRqHandles<O> {
+    type Target = BatchOutput<O>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
