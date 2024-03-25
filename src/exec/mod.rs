@@ -29,6 +29,7 @@ pub trait StateExecutorTrait {
     fn start_polling_state(&self) -> Result<()>;
 }
 
+#[derive(Clone, Copy)]
 pub enum RequestType {
     Ordered,
     Unordered,

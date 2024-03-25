@@ -24,7 +24,7 @@ use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
 
-const WORKER_QUEUE_SIZE: usize = 124;
+const WORKER_QUEUE_SIZE: usize = 128;
 const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
