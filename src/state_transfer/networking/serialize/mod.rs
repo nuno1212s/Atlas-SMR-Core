@@ -9,7 +9,6 @@ use atlas_communication::reconfiguration::NetworkInformationProvider;
 /// The abstraction for state transfer protocol messages.
 /// This allows us to have any state transfer protocol work with the same backbone
 pub trait StateTransferMessage: Send {
-    
     type StateTransferMessage: SerType + Sync;
 
     /// Verify the message and return the message if it is valid

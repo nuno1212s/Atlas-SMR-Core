@@ -53,8 +53,8 @@ pub enum PreProcessorWorkMessage<O> {
 
 /// Each worker will be assigned a given set of clients
 pub struct RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     worker_id: usize,
     /// Receive work
@@ -74,8 +74,8 @@ pub struct RequestPreProcessingWorker<D>
 }
 
 impl<D> RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     pub fn new(
         worker_id: usize,
@@ -431,8 +431,8 @@ pub fn spawn_worker<D>(
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
 ) -> RequestPreProcessingWorkerHandle<SMRSysMessage<D>>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,

@@ -88,10 +88,9 @@ impl<R> WrappedExecHandle<R> {
 
         update_batch
     }
-    
+
     fn transform_unordered_batch(decision: Vec<StoredMessage<SMRRawReq<R>>>) -> UnorderedBatch<R> {
-        let mut update_batch =
-            UnorderedBatch::new_with_cap(decision.len());
+        let mut update_batch = UnorderedBatch::new_with_cap(decision.len());
 
         decision.into_iter().for_each(|request| {
             let (header, message) = request.into_inner();
@@ -106,7 +105,6 @@ impl<R> WrappedExecHandle<R> {
 
         update_batch
     }
-    
 }
 
 impl<R> DecisionExecutorHandle<SMRRawReq<R>> for WrappedExecHandle<R>
@@ -127,7 +125,8 @@ where
     }
 
     fn queue_update_unordered(&self, requests: Vec<StoredMessage<SMRRawReq<R>>>) -> Result<()> {
-        self.0.queue_update_unordered(Self::transform_unordered_batch(requests))
+        self.0
+            .queue_update_unordered(Self::transform_unordered_batch(requests))
     }
 }
 
