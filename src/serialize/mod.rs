@@ -5,7 +5,6 @@ use atlas_common::error::*;
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::{InternalMessageVerifier, Serializable};
-use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::OrderProtocolVerificationHelper;
 use atlas_core::ordering_protocol::networking::serialize::{
     OrderingProtocolMessage, ViewTransferProtocolMessage,

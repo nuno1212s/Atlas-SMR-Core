@@ -14,7 +14,8 @@ use atlas_core::request_pre_processing::{
     BatchOutput, PreProcessorMessage, PreProcessorOutputMessage, RequestPreProcessor,
     WorkPartitioner,
 };
-use atlas_core::timeouts::{RqTimeout, TimeoutKind};
+use atlas_core::timeouts::timeout::ModTimeout;
+use atlas_core::timeouts::{Timeout, TimeoutID};
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 
@@ -65,7 +66,7 @@ where
     where
         D: ApplicationData,
         NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         loop {
             self.process_client_rqs();
@@ -77,7 +78,7 @@ where
     where
         D: ApplicationData,
         NT: RequestPreProcessingHandle<SMRSysMessage<D>>,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let messages = match self
             .network_node
@@ -102,7 +103,7 @@ where
                 worker_message[worker % self.thread_count].push(message);
             }
 
-            for (worker, rqs) in std::iter::zip(&self.work_comms, worker_message) {
+            for (worker, rqs) in iter::zip(&self.work_comms, worker_message) {
                 worker.send(PreProcessorWorkMessage::ClientPoolRequestsReceived(rqs));
             }
 
@@ -115,7 +116,7 @@ where
     fn process_work_messages(&mut self)
     where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         while let Ok(work_recved) = self.ordered_work_receiver.try_recv() {
             match work_recved {
@@ -147,11 +148,11 @@ where
         fwd_reqs: StoredMessage<ForwardedRequestsMessage<SMRReq<D>>>,
     ) where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let start = Instant::now();
 
-        let (header, message) = fwd_reqs.into_inner();
+        let (_, message) = fwd_reqs.into_inner();
 
         let fwd_reqs = message.into_inner();
 
@@ -181,7 +182,7 @@ where
     fn process_decided_batch(&self, decided: Vec<ClientRqInfo>)
     where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let start = Instant::now();
 
@@ -203,19 +204,19 @@ where
 
     fn process_timeouts(
         &self,
-        timeouts: Vec<RqTimeout>,
-        responder: ChannelSyncTx<(Vec<RqTimeout>, Vec<RqTimeout>)>,
+        timeouts: Vec<ModTimeout>,
+        responder: ChannelSyncTx<(Vec<ModTimeout>, Vec<ModTimeout>)>,
     ) where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let start = Instant::now();
 
         let mut worker_messages = init_worker_vecs(self.thread_count, timeouts.len());
 
         for timeout in timeouts {
-            if let TimeoutKind::ClientRequestTimeout(rq) = timeout.timeout_kind() {
-                let worker = WD::get_worker_for_processed(&rq, self.thread_count);
+            if let TimeoutID::SessionBased { from, session, .. } = timeout.id() {
+                let worker = WD::get_worker_for_raw(*from, *session, self.thread_count);
 
                 worker_messages[worker % self.thread_count].push(timeout);
             }
@@ -272,7 +273,7 @@ where
     fn process_stopped_rqs(&self, rq_type: RequestType, rqs: Vec<StoredMessage<SMRReq<D>>>)
     where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let start = Instant::now();
 
@@ -305,7 +306,7 @@ where
         responder: OneShotTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) where
         D: ApplicationData,
-        WD: WorkPartitioner<SMRSysMessage<D>>,
+        WD: WorkPartitioner,
     {
         let start = Instant::now();
 
@@ -359,7 +360,7 @@ pub fn initialize_request_pre_processor<WD, D, NT>(
 where
     D: ApplicationData + Send + 'static,
     NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
-    WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
+    WD: WorkPartitioner + 'static,
 {
     let (batch_tx, receiver) =
         new_bounded_sync(PROPOSER_QUEUE_SIZE, Some("Pre Processor Batch Output"));
@@ -418,7 +419,7 @@ fn launch_orchestrator_thread<WD, D, NT>(orchestrator: RequestPreProcessingOrche
 where
     D: ApplicationData + Send + 'static,
     NT: RequestPreProcessingHandle<SMRSysMessage<D>> + 'static,
-    WD: WorkPartitioner<SMRSysMessage<D>> + 'static,
+    WD: WorkPartitioner + 'static,
 {
     std::thread::Builder::new()
         .name(format!("{}", RQ_PRE_PROCESSING_ORCHESTRATOR))

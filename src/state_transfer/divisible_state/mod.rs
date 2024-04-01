@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use atlas_common::channel::ChannelSyncTx;
 use atlas_common::error::*;
-use atlas_core::timeouts::Timeouts;
+use atlas_core::timeouts::timeout::TimeoutModHandle;
 use atlas_smr_application::state::divisible_state::{DivisibleState, InstallStateMessage};
 
 use crate::persistent_log::DivisibleStateLog;
@@ -33,7 +33,7 @@ where
     /// Initialize the state transferring protocol with the given configuration, timeouts and communication layer
     fn initialize(
         config: Self::Config,
-        timeouts: Timeouts,
+        timeouts: TimeoutModHandle,
         node: Arc<NT>,
         log: PL,
         executor_state_handle: ChannelSyncTx<InstallStateMessage<S>>,

@@ -5,25 +5,15 @@ use atlas_common::maybe_vec::MaybeVec;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::Orderable;
 use atlas_communication::message::StoredMessage;
-use atlas_communication::reconfiguration::NetworkInformationProvider;
-use atlas_communication::serialization::Serializable;
-use atlas_communication::stub::{ModuleOutgoingStub, NetworkStub};
 use atlas_core::executor::DecisionExecutorHandle;
-use atlas_core::messages::{ReplyMessage, SessionBased};
-use atlas_core::ordering_protocol::networking::serialize::{
-    OrderingProtocolMessage, ViewTransferProtocolMessage,
-};
+use atlas_core::messages::SessionBased;
 use atlas_core::ordering_protocol::BatchedDecision;
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::app::{UnorderedBatch, UpdateBatch};
-use atlas_smr_application::serialize::ApplicationData;
 use atlas_smr_application::ExecutorHandle;
 
-use crate::message::OrderableMessage;
-use crate::networking::{AppNode, ReplicaNodeWrapper};
-use crate::serialize::SMRSysMsg;
 use crate::state_transfer::networking::serialize::StateTransferMessage;
-use crate::{SMRRawReq, SMRReply, SMRReq};
+use crate::SMRRawReq;
 
 pub trait StateExecutorTrait {
     fn start_polling_state(&self) -> Result<()>;

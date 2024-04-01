@@ -1,19 +1,18 @@
-use crate::message::{OrderableMessage, SystemMessage};
-use crate::serialize::{SMRSysMessage, SMRSysMsg, Service};
-use crate::state_transfer::networking::serialize::StateTransferMessage;
-use crate::state_transfer::networking::signature_ver::StateTransferVerificationHelper;
-use crate::SMRReq;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration::NetworkInformationProvider;
-use atlas_core::messages::RequestMessage;
 use atlas_core::ordering_protocol::networking::serialize::{
     OrderProtocolVerificationHelper, OrderingProtocolMessage, ViewTransferProtocolMessage,
 };
 use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_logging_core::log_transfer::networking::signature_ver::LogTransferVerificationHelper;
 use atlas_smr_application::serialize::ApplicationData;
-use std::marker::PhantomData;
-use std::sync::Arc;
+
+use crate::message::{OrderableMessage, SystemMessage};
+use crate::serialize::{SMRSysMsg, Service};
+use crate::SMRReq;
 
 pub struct SigVerifier<NI, D, OP, LT, VT>(PhantomData<fn() -> (NI, D, OP, LT, VT)>);
 

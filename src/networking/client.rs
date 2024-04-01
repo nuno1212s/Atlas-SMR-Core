@@ -104,7 +104,7 @@ where
     CN: ByteNetworkStub + 'static,
     BN: ByteNetworkControllerInit<NI, CLIPeerCNNMan<NI, CN, RM, D>, CN, CLIPeerInn<RM, D>>,
 {
-    type Config = (BN::Config);
+    type Config = BN::Config;
 
     type AppNode =
         ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;

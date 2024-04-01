@@ -9,12 +9,12 @@ use atlas_common::error::*;
 use atlas_common::globals::ReadOnly;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::message::StoredMessage;
+use atlas_core::ordering_protocol::networking::serialize::NetworkView;
+use atlas_core::ordering_protocol::ExecutionResult;
+use atlas_core::timeouts::timeout::TimeoutableMod;
 
 use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
-use atlas_core::ordering_protocol::networking::serialize::NetworkView;
-use atlas_core::ordering_protocol::ExecutionResult;
-use atlas_core::timeouts::RqTimeout;
 
 pub mod divisible_state;
 pub mod monolithic_state;
@@ -115,7 +115,7 @@ pub enum STTimeoutResult {
 pub type CstM<M: StateTransferMessage> = <M as StateTransferMessage>::StateTransferMessage;
 pub type STMsg<M: StateTransferMessage> = <M as StateTransferMessage>::StateTransferMessage;
 
-pub trait StateTransferProtocol<S> {
+pub trait StateTransferProtocol<S>: TimeoutableMod<STTimeoutResult> {
     /// The type which implements StateTransferMessage, to be implemented by the developer
     type Serialization: StateTransferMessage + 'static;
 
@@ -151,11 +151,6 @@ pub trait StateTransferProtocol<S> {
     /// The state transfer protocol then sees if the conditions are met to receive it
     /// (We could still be waiting for a previous checkpoint, for example)
     fn handle_app_state_requested(&mut self, seq: SeqNo) -> Result<ExecutionResult>;
-
-    /// Handle a timeout being received from the timeout layer
-    fn handle_timeout<V>(&mut self, view: V, timeout: Vec<RqTimeout>) -> Result<STTimeoutResult>
-    where
-        V: NetworkView;
 }
 
 impl<S> Debug for Checkpoint<S> {

@@ -10,9 +10,10 @@ use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::message::{Header, StoredMessage};
-use atlas_core::messages::{ClientRqInfo, SessionBased};
+use atlas_core::messages::{ClientRqInfo};
 use atlas_core::request_pre_processing::{operation_key, operation_key_raw, PreProcessorOutput};
-use atlas_core::timeouts::{RqTimeout, TimeoutKind};
+use atlas_core::timeouts::timeout::ModTimeout;
+use atlas_core::timeouts::{TimeoutID};
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 
@@ -38,8 +39,8 @@ pub enum PreProcessorWorkMessage<O> {
     StoppedRequestsReceived(Vec<StoredMessage<O>>),
     /// Analyse timeout requests. Returns only timeouts that have not yet been executed
     TimeoutsReceived(
-        Vec<RqTimeout>,
-        ChannelSyncTx<(Vec<RqTimeout>, Vec<RqTimeout>)>,
+        Vec<ModTimeout>,
+        ChannelSyncTx<(Vec<ModTimeout>, Vec<ModTimeout>)>,
     ),
     /// A batch of requests has been decided by the system
     DecidedBatch(Vec<ClientRqInfo>),
@@ -144,7 +145,7 @@ where
 
         let (seq_no, digest) = {
             if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
-                (seq_no.clone(), digest.clone())
+                (*seq_no, *digest)
             } else {
                 (SeqNo::ZERO, None)
             }
@@ -157,7 +158,7 @@ where
 
             self.latest_ops.insert(
                 key,
-                (message.sequence_number(), Some(unique_digest.clone())),
+                (message.sequence_number(), Some(*unique_digest)),
             );
         }
 
@@ -169,7 +170,7 @@ where
 
         let (seq_no, digest) = {
             if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
-                (seq_no.clone(), digest.clone())
+                (*seq_no, *digest)
             } else {
                 (SeqNo::ZERO, None)
             }
@@ -207,13 +208,13 @@ where
 
             match &message.message() {
                 OrderableMessage::OrderedRequest(_) => {
-                    let header = message.header().clone();
+                    let header = *message.header();
 
                     let req_msg = message.message().clone().into_smr_request();
 
                     ordered_requests.push(StoredMessage::new(header, req_msg));
 
-                    self.pending_requests.insert(digest.clone(), message);
+                    self.pending_requests.insert(digest, message);
                 }
                 OrderableMessage::UnorderedRequest(_) => {
                     let (header, message) = message.into_inner();
@@ -290,7 +291,7 @@ where
                     }
                 }
 
-                return true;
+                true
             })
             .map(|req| {
                 let (header, message) = req.into_inner();
@@ -326,20 +327,39 @@ where
     /// And need not be processed
     fn process_timeouts(
         &mut self,
-        mut timeouts: Vec<RqTimeout>,
-        tx: ChannelSyncTx<(Vec<RqTimeout>, Vec<RqTimeout>)>,
+        mut timeouts: Vec<ModTimeout>,
+        tx: ChannelSyncTx<(Vec<ModTimeout>, Vec<ModTimeout>)>,
     ) {
         let mut returned_timeouts = Vec::with_capacity(timeouts.len());
 
         let mut removed_timeouts = Vec::with_capacity(timeouts.len());
 
         for timeout in timeouts {
-            let result = if let TimeoutKind::ClientRequestTimeout(rq_info) = timeout.timeout_kind()
+            let result = if let TimeoutID::SessionBased {
+                from,
+                session,
+                seq_no,
+            } = timeout.id()
             {
-                let key = operation_key_raw(rq_info.sender, rq_info.session);
+                if timeout.extra_info().is_none() {
+                    continue;
+                }
 
-                if let Some((seq_no, _)) = self.latest_ops.get(key) {
-                    if *seq_no >= rq_info.seq_no {
+                let rq_info: Option<&ClientRqInfo> =
+                    <dyn std::any::Any>::downcast_ref::<ClientRqInfo>(
+                        timeout.extra_info().unwrap().as_any(),
+                    );
+
+                if rq_info.is_none() {
+                    continue;
+                }
+
+                let rq_info = rq_info.unwrap();
+
+                let key = operation_key_raw(*from, *session);
+
+                if let Some((cur_seq_no, _)) = self.latest_ops.get(key) {
+                    if *cur_seq_no >= *seq_no {
                         self.pending_requests.contains_key(&rq_info.digest)
                     } else {
                         true

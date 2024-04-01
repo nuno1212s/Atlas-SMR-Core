@@ -4,9 +4,9 @@ use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use atlas_communication::message::{SerializedMessage, StoredSerializedMessage};
+use atlas_core::ordering_protocol::networking::serialize::ViewTransferProtocolMessage;
 
 use crate::state_transfer::networking::serialize::StateTransferMessage;
-use atlas_core::ordering_protocol::networking::serialize::ViewTransferProtocolMessage;
 
 pub mod serialize;
 pub mod signature_ver;
