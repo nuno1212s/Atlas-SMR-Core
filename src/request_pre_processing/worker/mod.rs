@@ -1,7 +1,7 @@
 use intmap::IntMap;
 use std::time::Instant;
 
-use log::{debug, error};
+use tracing::{debug, error, instrument};
 
 use crate::message::OrderableMessage;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx, OneShotTx};
@@ -10,10 +10,10 @@ use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::message::{Header, StoredMessage};
-use atlas_core::messages::{ClientRqInfo};
+use atlas_core::messages::ClientRqInfo;
 use atlas_core::request_pre_processing::{operation_key, operation_key_raw, PreProcessorOutput};
 use atlas_core::timeouts::timeout::ModTimeout;
-use atlas_core::timeouts::{TimeoutID};
+use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 
@@ -156,10 +156,8 @@ where
         if !has_received_more_recent {
             digest.map(|digest| self.pending_requests.remove(&digest));
 
-            self.latest_ops.insert(
-                key,
-                (message.sequence_number(), Some(*unique_digest)),
-            );
+            self.latest_ops
+                .insert(key, (message.sequence_number(), Some(*unique_digest)));
         }
 
         has_received_more_recent
@@ -186,6 +184,7 @@ where
     }
 
     /// Process the ordered client pool requests
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn process_client_pool_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let start = Instant::now();
 
@@ -260,6 +259,7 @@ where
     }
 
     /// Process the forwarded requests
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn process_forwarded_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let initial_size = requests.len();
 
@@ -278,8 +278,7 @@ where
 
                 match request.message() {
                     OrderableMessage::OrderedRequest(_) => {
-                        self.pending_requests
-                            .insert(digest.clone(), request.clone());
+                        self.pending_requests.insert(digest, request.clone());
                     }
                     OrderableMessage::UnorderedRequest(_) => {
                         error!("Received an unordered request as a forwarded message.");
@@ -325,9 +324,10 @@ where
     /// And for requests that we have seen and are still in the pending request list.
     /// If they are not in the pending request map that means they have already been executed
     /// And need not be processed
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, timeouts = timeouts.len()))]
     fn process_timeouts(
         &mut self,
-        mut timeouts: Vec<ModTimeout>,
+        timeouts: Vec<ModTimeout>,
         tx: ChannelSyncTx<(Vec<ModTimeout>, Vec<ModTimeout>)>,
     ) {
         let mut returned_timeouts = Vec::with_capacity(timeouts.len());
@@ -383,6 +383,7 @@ where
     }
 
     /// Process a decided batch
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn process_decided_batch(&mut self, requests: Vec<ClientRqInfo>) {
         let start = Instant::now();
 
@@ -397,6 +398,7 @@ where
         metric_duration(RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, start.elapsed());
     }
 
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     /// Clone a set of pending requests
     fn clone_pending_requests(
         &self,
@@ -418,16 +420,16 @@ where
 
     /// Collect all pending requests stored in this worker
     fn collect_pending_requests(&mut self) -> Vec<StoredMessage<SMRSysMessage<D>>> {
-        std::mem::replace(&mut self.pending_requests, Default::default())
-            .into_iter()
-            .map(|(_, request)| request)
+        std::mem::take(&mut self.pending_requests)
+            .into_values()
             .collect()
     }
 
-    fn clean_client(&self, node_id: NodeId) {
+    fn clean_client(&self, _node_id: NodeId) {
         todo!()
     }
 
+    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn stopped_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         requests.into_iter().for_each(|request| {
             let digest = request.header().unique_digest();
@@ -440,8 +442,7 @@ where
                 return;
             }
 
-            self.pending_requests
-                .insert(digest.clone(), request.clone());
+            self.pending_requests.insert(digest, request.clone());
         })
     }
 }
