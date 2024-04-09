@@ -457,7 +457,7 @@ where
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,
-        Some(format!("Worker Handle {}", worker_id).as_str()),
+        Some(format!("RQ PreProcessing Worker Handle {}", worker_id).as_str()),
     );
 
     let worker =
