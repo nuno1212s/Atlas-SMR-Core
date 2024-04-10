@@ -30,7 +30,7 @@ const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
-pub enum PreProcessorWorkMessage<O> {
+pub(super) enum PreProcessorWorkMessage<O> {
     /// We have received requests from the clients, which need
     /// to be processed
     ClientPoolRequestsReceived(Vec<StoredMessage<O>>),
@@ -45,15 +45,15 @@ pub enum PreProcessorWorkMessage<O> {
     /// A batch of requests has been decided by the system
     DecidedBatch(Vec<ClientRqInfo>),
     /// Collect all pending messages from the given worker
-    CollectPendingMessages(OneShotTx<Vec<StoredMessage<O>>>),
+    CollectPendingMessages(ChannelSyncTx<Vec<StoredMessage<O>>>),
     /// Clone a set of given pending requests
-    ClonePendingRequests(Vec<ClientRqInfo>, OneShotTx<Vec<StoredMessage<O>>>),
+    ClonePendingRequests(Vec<ClientRqInfo>, ChannelSyncTx<Vec<StoredMessage<O>>>),
     /// Remove all requests associated with this client (due to a disconnection, for example)
     CleanClient(NodeId),
 }
 
 /// Each worker will be assigned a given set of clients
-pub struct RequestPreProcessingWorker<D>
+pub(super) struct RequestPreProcessingWorker<D>
 where
     D: ApplicationData + 'static,
 {
@@ -342,6 +342,8 @@ where
             } = timeout.id()
             {
                 if timeout.extra_info().is_none() {
+                    debug!(timeout = timeout, "Ignoring timeout as it has no extra info.");
+                    
                     continue;
                 }
 
@@ -447,7 +449,7 @@ where
     }
 }
 
-pub fn spawn_worker<D>(
+pub(super) fn spawn_worker<D>(
     worker_id: usize,
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
