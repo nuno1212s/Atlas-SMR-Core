@@ -10,17 +10,15 @@ use atlas_common::error::Result;
 use atlas_common::ordering::Orderable;
 use atlas_communication::message::StoredMessage;
 use atlas_core::messages::{ClientRqInfo, ForwardedRequestsMessage, SessionBased};
-use atlas_core::metric::{RQ_PP_CLONE_PENDING_TIME_ID, RQ_PP_COLLECT_PENDING_TIME_ID};
-use atlas_core::request_pre_processing::{BatchOutput, PreProcessorOutputMessage, RequestPProcessorAsync, RequestPProcessorSync, RequestPreProcessorTimeout, WorkPartitioner};
+use atlas_core::request_pre_processing::{BatchOutput, PreProcessorOutputMessage, RequestPProcessorAsync, RequestPProcessorSync, RequestPreProcessing, RequestPreProcessorTimeout, WorkPartitioner};
 use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
-use atlas_core::request_pre_processing::work_dividers::WDRoundRobin;
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
+
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-
 use crate::metric::{RQ_PP_CLIENT_COUNT_ID, RQ_PP_CLIENT_MSG_ID, RQ_PP_CLONE_RQS_ID, RQ_PP_COLLECT_PENDING_ID, RQ_PP_DECIDED_RQS_ID, RQ_PP_FWD_RQS_ID, RQ_PP_TIMEOUT_RQS_ID, RQ_PP_WORKER_STOPPED_TIME_ID};
 use crate::request_pre_processing::worker::{PreProcessorWorkMessage, RequestPreProcessingWorkerHandle};
 use crate::serialize::SMRSysMessage;
@@ -51,21 +49,6 @@ enum PreProcessorMessage<O> {
     CollectAllPendingMessages(ChannelSyncTx<Vec<StoredMessage<O>>>),
     /// Clone a vec of requests to be used
     CloneRequests(Vec<ClientRqInfo>, ChannelSyncTx<Vec<StoredMessage<O>>>),
-}
-
-
-/// The request pre-processor trait.
-///
-/// This trait is responsible for processing requests that have been forwarded to the current replica.
-pub trait RequestPreProcessing<O> {
-    /// Process a given message containing forwarded requests
-    fn process_forwarded_requests(&self, message: StoredMessage<ForwardedRequestsMessage<O>>) -> Result<()>;
-
-    /// Process a given message containing stopped requests
-    fn process_stopped_requests(&self, messages: Vec<StoredMessage<O>>) -> Result<()>;
-
-    /// Process a batch of requests that have been ordered
-    fn process_decided_batch(&self, client_rqs: Vec<ClientRqInfo>) -> Result<()>;
 }
 
 /// Request pre processor handle
@@ -406,23 +389,6 @@ pub fn initialize_request_pre_processor<WD, D, NT>(
     )
 }
 
-fn init_for_workers<V, F>(thread_count: usize, init: F) -> Vec<V>
-    where
-        F: FnMut() -> V,
-{
-    let mut worker_message: Vec<V> = std::iter::repeat_with(init).take(thread_count).collect();
-
-    worker_message
-}
-
-fn init_worker_vecs<O>(thread_count: usize, message_count: usize) -> Vec<Vec<O>> {
-    let message_count = message_count / thread_count;
-
-    let workers = init_for_workers(thread_count, || Vec::with_capacity(message_count));
-
-    workers
-}
-
 fn launch_orchestrator_thread<WD, D, NT>(orchestrator: RequestPreProcessingOrchestrator<WD, D, NT>)
     where
         D: ApplicationData + Send + 'static,
@@ -430,7 +396,7 @@ fn launch_orchestrator_thread<WD, D, NT>(orchestrator: RequestPreProcessingOrche
         WD: WorkPartitioner + 'static,
 {
     std::thread::Builder::new()
-        .name(format!("{}", RQ_PRE_PROCESSING_ORCHESTRATOR))
+        .name(RQ_PRE_PROCESSING_ORCHESTRATOR.to_string())
         .spawn(move || {
             orchestrator.run();
         })
