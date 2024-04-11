@@ -20,29 +20,29 @@ pub enum OrderableMessage<D: ApplicationData> {
     ///An ordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(
-        deserialize = "D::Request: Deserialize<'de>",
-        serialize = "D::Request: Serialize"
+    deserialize = "D::Request: Deserialize<'de>",
+    serialize = "D::Request: Serialize"
     ))]
     OrderedRequest(SMRReq<D>),
     ///An unordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(
-        deserialize = "D::Request: Deserialize<'de>",
-        serialize = "D::Request: Serialize"
+    deserialize = "D::Request: Deserialize<'de>",
+    serialize = "D::Request: Serialize"
     ))]
     UnorderedRequest(SMRReq<D>),
     ///A reply to an ordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(
-        deserialize = "D::Reply: Deserialize<'de>",
-        serialize = "D::Reply: Serialize"
+    deserialize = "D::Reply: Deserialize<'de>",
+    serialize = "D::Reply: Serialize"
     ))]
     OrderedReply(SMRReply<D>),
     ///A reply to an unordered request
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(
-        deserialize = "D::Reply: Deserialize<'de>",
-        serialize = "D::Reply: Serialize"
+    deserialize = "D::Reply: Deserialize<'de>",
+    serialize = "D::Reply: Serialize"
     ))]
     UnorderedReply(SMRReply<D>),
 }
@@ -54,8 +54,8 @@ pub enum SystemMessage<D: ApplicationData, P, LT, VT> {
     ///Requests forwarded from other peers
     /// You can check what these bounds mean here: https://serde.rs/attr-bound.html
     #[serde(bound(
-        deserialize = "D::Request: Deserialize<'de>",
-        serialize = "D::Request: Serialize"
+    deserialize = "D::Request: Deserialize<'de>",
+    serialize = "D::Request: Serialize"
     ))]
     ForwardedRequestMessage(ForwardedRequestsMessage<SMRReq<D>>),
     ///A message related to the protocol
@@ -69,8 +69,8 @@ pub enum SystemMessage<D: ApplicationData, P, LT, VT> {
 }
 
 impl<D, P, LT, VT> SystemMessage<D, P, LT, VT>
-where
-    D: ApplicationData,
+    where
+        D: ApplicationData,
 {
     pub fn from_protocol_message(msg: P) -> Self {
         SystemMessage::ProtocolMessage(Protocol::new(msg))
@@ -117,11 +117,11 @@ where
 }
 
 impl<D, P, LT, VT> Clone for SystemMessage<D, P, LT, VT>
-where
-    D: ApplicationData,
-    P: Clone,
-    LT: Clone,
-    VT: Clone,
+    where
+        D: ApplicationData,
+        P: Clone,
+        LT: Clone,
+        VT: Clone,
 {
     fn clone(&self) -> Self {
         match self {
@@ -143,8 +143,8 @@ where
 }
 
 impl<D> Clone for OrderableMessage<D>
-where
-    D: ApplicationData,
+    where
+        D: ApplicationData,
 {
     fn clone(&self) -> Self {
         match self {
@@ -158,12 +158,24 @@ where
     }
 }
 
+impl<D> SessionBased for OrderableMessage<D>
+    where D: ApplicationData {
+    fn session_number(&self) -> SeqNo {
+        match self {
+            OrderableMessage::OrderedRequest(rq) |
+            OrderableMessage::UnorderedRequest(rq) => rq.session_number(),
+            OrderableMessage::OrderedReply(rp) |
+            OrderableMessage::UnorderedReply(rp) => rp.session_number(),
+        }
+    }
+}
+
 impl<D, P, LT, VT> Debug for SystemMessage<D, P, LT, VT>
-where
-    D: ApplicationData,
-    P: Clone,
-    LT: Clone,
-    VT: Clone,
+    where
+        D: ApplicationData,
+        P: Clone,
+        LT: Clone,
+        VT: Clone,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -226,17 +238,6 @@ impl<D: ApplicationData> Orderable for OrderableMessage<D> {
             OrderableMessage::UnorderedRequest(req) => req.sequence_number(),
             OrderableMessage::OrderedReply(rep) => rep.sequence_number(),
             OrderableMessage::UnorderedReply(rep) => rep.sequence_number(),
-        }
-    }
-}
-
-impl<D: ApplicationData> SessionBased for OrderableMessage<D> {
-    fn session_number(&self) -> SeqNo {
-        match self {
-            OrderableMessage::OrderedRequest(req) => req.session_number(),
-            OrderableMessage::UnorderedRequest(req) => req.session_number(),
-            OrderableMessage::OrderedReply(rep) => rep.session_number(),
-            OrderableMessage::UnorderedReply(rep) => rep.session_number(),
         }
     }
 }

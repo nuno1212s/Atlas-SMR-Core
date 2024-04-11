@@ -141,7 +141,7 @@ struct RequestPreProcessingOrchestrator<WD, D, NT>
     /// How many workers should we have
     thread_count: usize,
     /// Work message transmission for each worker
-    work_comms: Vec<RequestPreProcessingWorkerHandle<SMRSysMessage<D>>>,
+    work_comms: Vec<RequestPreProcessingWorkerHandle<D>>,
     /// The RX end for a work channel for the request pre processor
     ordered_work_receiver: ChannelSyncRx<PreProcessorMessage<SMRReq<D>>>,
     /// The network node so we can poll messages received from the clients
@@ -149,7 +149,6 @@ struct RequestPreProcessingOrchestrator<WD, D, NT>
     /// How we are going to divide the work between workers
     work_divider: PhantomData<fn() -> WD>,
 }
-
 
 
 impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
@@ -191,7 +190,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         if !messages.is_empty() {
             messages
                 .into_iter()
-                .group_by(|message| WD::get_worker_for(&message.header(), &message.message(), self.thread_count))
+                .group_by(|message| WD::get_worker_for_raw(message.header().from(), message.message().session_number(), self.thread_count))
                 .into_iter()
                 .for_each(|(worker, messages)| {
                     let messages: Vec<StoredMessage<SMRSysMessage<D>>> = messages.collect();
@@ -251,7 +250,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         fwd_reqs
             .into_iter()
             .map(|msg| map_smr_req(msg, request_type))
-            .group_by(|message| WD::get_worker_for(&message.header(), &message.message(), self.thread_count))
+            .group_by(|message| WD::get_worker_for_raw(message.header().from(), message.message().session_number(), self.thread_count))
             .into_iter()
             .for_each(|(worker, messages)| {
                 self.work_comms[worker].send(PreProcessorWorkMessage::ForwardedRequestsReceived(messages.collect()))
@@ -316,7 +315,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         rqs
             .into_iter()
             .map(|msg| map_smr_req(msg, rq_type))
-            .group_by(|message| WD::get_worker_for(&message.header(), &message.message(), self.thread_count))
+            .group_by(|message| WD::get_worker_for_raw(message.header().from(), message.message().session_number(), self.thread_count))
             .into_iter()
             .for_each(|(worker, messages)| {
                 self.work_comms[worker].send(PreProcessorWorkMessage::StoppedRequestsReceived(messages.collect()))
@@ -331,15 +330,14 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         tx: ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) {
         let start = Instant::now();
-        
+
         self.work_comms.iter()
             .for_each(|worker| {
-                worker.send(PreProcessorWorkMessage::CollectPendingMessages(tx.clone()))
+                worker.send(PreProcessorWorkMessage::CollectPendingMessages(request_type, tx.clone()))
             });
 
         metric_duration(RQ_PP_COLLECT_PENDING_ID, start.elapsed());
     }
-
 
     fn clone_pending_rqs(
         &self,
@@ -351,40 +349,13 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
     {
         let start = Instant::now();
 
-        let mut pending_rqs = Vec::with_capacity(digests.len());
-
-        let mut worker_messages = init_worker_vecs(self.thread_count, digests.len());
-        let worker_responses =
-            init_for_workers(self.thread_count, || channel::new_oneshot_channel());
-
-        for rq in digests {
-            let worker = WD::get_worker_for_processed(&rq, self.thread_count);
-
-            worker_messages[worker % self.thread_count].push(rq);
-        }
-
-        let rxs: Vec<OneShotRx<Vec<StoredMessage<SMRSysMessage<D>>>>> = iter::zip(
-            &self.work_comms,
-            iter::zip(worker_messages, worker_responses),
-        )
-            .map(|(worker, (messages, (tx, rx)))| {
-                worker.send(PreProcessorWorkMessage::ClonePendingRequests(messages, tx));
-
-                rx
-            })
-            .collect();
-
-        for rx in rxs {
-            let rqs = rx.recv().unwrap();
-
-            for req in rqs {
-                let (header, msg) = req.into_inner();
-
-                pending_rqs.push(StoredMessage::new(header, msg.into_smr_request()))
-            }
-        }
-
-        responder.send(pending_rqs).unwrap();
+        digests
+            .into_iter()
+            .group_by(|rq| WD::get_worker_for_processed(rq, self.thread_count))
+            .into_iter()
+            .for_each(|(worker, rqs)| {
+                self.work_comms[worker].send(PreProcessorWorkMessage::ClonePendingRequests(rqs.collect(), RequestType::Ordered, responder.clone()))
+            });
 
         metric_duration(RQ_PP_CLONE_RQS_ID, start.elapsed());
     }
@@ -490,8 +461,8 @@ impl<O> Deref for UnorderedRqHandles<O> {
     }
 }
 
-fn map_smr_req<D>(request: StoredMessage<SMRReq<D>>, request_type: RequestType) ->
-StoredMessage<SMRSysMessage<D>> {
+fn map_smr_req<D>(request: StoredMessage<SMRReq<D>>, request_type: RequestType) -> StoredMessage<SMRSysMessage<D>>
+    where D: ApplicationData + 'static {
     let (header, msg) = request.into_inner();
 
     let msg = match request_type {

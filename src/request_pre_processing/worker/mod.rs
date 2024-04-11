@@ -16,6 +16,7 @@ use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
+use crate::exec::RequestType;
 
 use crate::metric::{
     RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID,
@@ -30,13 +31,16 @@ const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
-pub(super) enum PreProcessorWorkMessage<O> {
+pub(super) enum PreProcessorWorkMessage<D>
+    where
+        D: ApplicationData + 'static,
+{
     /// We have received requests from the clients, which need
     /// to be processed
-    ClientPoolRequestsReceived(Vec<StoredMessage<O>>),
+    ClientPoolRequestsReceived(Vec<StoredMessage<SMRSysMessage<D>>>),
     /// Received requests that were forwarded from other replicas
-    ForwardedRequestsReceived(Vec<StoredMessage<O>>),
-    StoppedRequestsReceived(Vec<StoredMessage<O>>),
+    ForwardedRequestsReceived(Vec<StoredMessage<SMRSysMessage<D>>>),
+    StoppedRequestsReceived(Vec<StoredMessage<SMRSysMessage<D>>>),
     /// Analyse timeout requests. Returns only timeouts that have not yet been executed
     TimeoutsReceived(
         Vec<ModTimeout>,
@@ -45,21 +49,21 @@ pub(super) enum PreProcessorWorkMessage<O> {
     /// A batch of requests has been decided by the system
     DecidedBatch(Vec<ClientRqInfo>),
     /// Collect all pending messages from the given worker
-    CollectPendingMessages(ChannelSyncTx<Vec<StoredMessage<O>>>),
+    CollectPendingMessages(RequestType, ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>),
     /// Clone a set of given pending requests
-    ClonePendingRequests(Vec<ClientRqInfo>, ChannelSyncTx<Vec<StoredMessage<O>>>),
+    ClonePendingRequests(Vec<ClientRqInfo>, RequestType, ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>),
     /// Remove all requests associated with this client (due to a disconnection, for example)
     CleanClient(NodeId),
 }
 
 /// Each worker will be assigned a given set of clients
 pub(super) struct RequestPreProcessingWorker<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     worker_id: usize,
     /// Receive work
-    message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<SMRSysMessage<D>>>,
+    message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<D>>,
 
     /// Output for the requests that have been processed and should now be proposed
     ordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
@@ -75,12 +79,12 @@ where
 }
 
 impl<D> RequestPreProcessingWorker<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     pub fn new(
         worker_id: usize,
-        message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<SMRSysMessage<D>>>,
+        message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<D>>,
         ordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
         unordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
     ) -> Self {
@@ -111,13 +115,13 @@ where
                 PreProcessorWorkMessage::DecidedBatch(requests) => {
                     self.process_decided_batch(requests);
                 }
-                PreProcessorWorkMessage::CollectPendingMessages(tx) => {
-                    let reqs = self.collect_pending_requests();
+                PreProcessorWorkMessage::CollectPendingMessages(rq_type, tx) => {
+                    let reqs = self.collect_pending_requests(rq_type);
 
                     tx.send(reqs).expect("Failed to send pending requests");
                 }
-                PreProcessorWorkMessage::ClonePendingRequests(requests, tx) => {
-                    self.clone_pending_requests(requests, tx);
+                PreProcessorWorkMessage::ClonePendingRequests(requests, rq_type, tx) => {
+                    self.clone_pending_requests(rq_type, requests, tx);
                 }
                 PreProcessorWorkMessage::CleanClient(client) => {
                     self.clean_client(client);
@@ -134,6 +138,14 @@ where
         }
     }
 
+    fn check_latest_op_for_key(&mut self, key: u64) -> (SeqNo, Option<Digest>) {
+        if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
+            (*seq_no, *digest)
+        } else {
+            (SeqNo::ZERO, None)
+        }
+    }
+
     /// Checks if we have received a more recent message for a given client/session combo
     fn has_received_more_recent_and_update(
         &mut self,
@@ -143,13 +155,7 @@ where
     ) -> bool {
         let key = operation_key::<SMRSysMessage<D>>(header, message);
 
-        let (seq_no, digest) = {
-            if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
-                (*seq_no, *digest)
-            } else {
-                (SeqNo::ZERO, None)
-            }
-        };
+        let (seq_no, digest) = self.check_latest_op_for_key(key);
 
         let has_received_more_recent = seq_no >= message.sequence_number();
 
@@ -166,13 +172,7 @@ where
     fn update_most_recent(&mut self, rq_info: &ClientRqInfo) {
         let key = operation_key_raw(rq_info.sender, rq_info.session);
 
-        let (seq_no, digest) = {
-            if let Some((seq_no, digest)) = self.latest_ops.get_mut(key) {
-                (*seq_no, *digest)
-            } else {
-                (SeqNo::ZERO, None)
-            }
-        };
+        let (seq_no, digest) = self.check_latest_op_for_key(key);
 
         let has_received_more_recent = seq_no >= rq_info.seq_no;
 
@@ -342,8 +342,8 @@ where
             } = timeout.id()
             {
                 if timeout.extra_info().is_none() {
-                    debug!(timeout = timeout, "Ignoring timeout as it has no extra info.");
-                    
+                    debug!("Ignoring timeout {:?} as it has no extra info.", timeout);
+
                     continue;
                 }
 
@@ -404,16 +404,23 @@ where
     /// Clone a set of pending requests
     fn clone_pending_requests(
         &self,
+        rq_type: RequestType,
         requests: Vec<ClientRqInfo>,
-        responder: OneShotTx<Vec<StoredMessage<SMRSysMessage<D>>>>,
+        responder: ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) {
-        let mut final_rqs = Vec::with_capacity(requests.len());
+        let final_rqs = requests
+            .into_iter()
+            .map(|rq_info| self.pending_requests.get(&rq_info.digest))
+            .filter(|opt| opt.is_some())
+            .map(Option::unwrap)
+            .map(Clone::clone)
+            .filter(|rq| filter_message_type(rq.message(), rq_type))
+            .map(|rq| {
+                let (header, msg) = rq.into_inner();
 
-        for rq_info in requests {
-            if let Some(request) = self.pending_requests.get(&rq_info.digest) {
-                final_rqs.push(request.clone());
-            }
-        }
+                StoredMessage::new(header, msg.into_smr_request())
+            })
+            .collect();
 
         responder
             .send(final_rqs)
@@ -421,9 +428,15 @@ where
     }
 
     /// Collect all pending requests stored in this worker
-    fn collect_pending_requests(&mut self) -> Vec<StoredMessage<SMRSysMessage<D>>> {
+    fn collect_pending_requests(&mut self, rq_type: RequestType) -> Vec<StoredMessage<SMRReq<D>>> {
         std::mem::take(&mut self.pending_requests)
             .into_values()
+            .filter(|rq| filter_message_type(rq.message(), rq_type))
+            .map(|rq| {
+                let (header, msg) = rq.into_inner();
+
+                StoredMessage::new(header, msg.into_smr_request())
+            })
             .collect()
     }
 
@@ -449,13 +462,24 @@ where
     }
 }
 
+fn filter_message_type<D>(message: &OrderableMessage<D>, request_type: RequestType) -> bool
+    where D: ApplicationData {
+    match message {
+        OrderableMessage::OrderedRequest(_) if matches!(request_type, RequestType::Ordered) => true,
+        OrderableMessage::UnorderedRequest(_) if matches!(request_type, RequestType::Unordered) => true,
+        OrderableMessage::OrderedRequest(_) => false,
+        OrderableMessage::UnorderedRequest(_) => false,
+        _ => unreachable!()
+    }
+}
+
 pub(super) fn spawn_worker<D>(
     worker_id: usize,
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
-) -> RequestPreProcessingWorkerHandle<SMRSysMessage<D>>
-where
-    D: ApplicationData + 'static,
+) -> RequestPreProcessingWorkerHandle<D>
+    where
+        D: ApplicationData + 'static,
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,
@@ -475,10 +499,11 @@ where
     RequestPreProcessingWorkerHandle(worker_tx)
 }
 
-pub struct RequestPreProcessingWorkerHandle<O>(ChannelSyncTx<PreProcessorWorkMessageOuter<O>>);
+pub struct RequestPreProcessingWorkerHandle<D>(ChannelSyncTx<PreProcessorWorkMessageOuter<D>>) where D: ApplicationData + 'static;
 
-impl<O> RequestPreProcessingWorkerHandle<O> {
-    pub fn send(&self, message: PreProcessorWorkMessage<O>) {
+impl<D> RequestPreProcessingWorkerHandle<D>
+    where D: ApplicationData + 'static {
+    pub fn send(&self, message: PreProcessorWorkMessage<D>) {
         self.0.send_return((Instant::now(), message)).unwrap()
     }
 }
