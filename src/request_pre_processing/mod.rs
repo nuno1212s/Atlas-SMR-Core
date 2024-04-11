@@ -25,6 +25,7 @@ use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
 
 mod worker;
+mod tests;
 
 const ORCHESTRATOR_RCV_TIMEOUT: Option<Duration> = Some(Duration::from_micros(50));
 const PROPOSER_QUEUE_SIZE: usize = 128;
