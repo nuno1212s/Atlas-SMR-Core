@@ -14,12 +14,12 @@ use atlas_core::request_pre_processing::{BatchOutput, PreProcessorOutputMessage,
 use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
-use atlas_metrics::metrics::{metric_duration, metric_increment};
+use atlas_metrics::metrics::{metric_duration, metric_increment, metric_store_count};
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-use crate::metric::{RQ_PP_CLIENT_COUNT_ID, RQ_PP_CLIENT_MSG_ID, RQ_PP_CLONE_RQS_ID, RQ_PP_COLLECT_PENDING_ID, RQ_PP_DECIDED_RQS_ID, RQ_PP_FWD_RQS_ID, RQ_PP_TIMEOUT_RQS_ID, RQ_PP_WORKER_STOPPED_TIME_ID};
+use crate::metric::{RQ_PP_CLIENT_COUNT_ID, RQ_PP_CLIENT_MSG_ID, RQ_PP_CLONE_RQS_ID, RQ_PP_COLLECT_PENDING_ID, RQ_PP_DECIDED_RQS_ID, RQ_PP_FWD_RQS_ID, RQ_PP_TIMEOUT_RQS_ID, RQ_PP_WORKER_BATCH_SIZE_ID, RQ_PP_WORKER_STOPPED_TIME_ID};
 use crate::request_pre_processing::worker::{PreProcessorWorkMessage, RequestPreProcessingWorkerHandle};
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
@@ -99,12 +99,28 @@ impl<O> RequestPProcessorAsync<O> for RequestPreProcessor<O> {
 }
 
 impl<O> RequestPProcessorSync<O> for RequestPreProcessor<O> {
-    fn clone_pending_rqs(&self, client_rqs: Vec<ClientRqInfo>) -> Vec<StoredMessage<O>> {
-        todo!()
+    fn clone_pending_rqs(&self, client_rqs: Vec<ClientRqInfo>) -> Result<Vec<StoredMessage<O>>> {
+        let channel = <Self as RequestPProcessorAsync<O>>::clone_pending_rqs(self, client_rqs)?;
+
+        let mut cloned_rqs = Vec::new();
+
+        while let Ok(mut message) = channel.recv() {
+            cloned_rqs.append(&mut message);
+        }
+
+        Ok(cloned_rqs)
     }
 
-    fn collect_pending_rqs(&self) -> Vec<StoredMessage<O>> {
-        todo!()
+    fn collect_pending_rqs(&self) -> Result<Vec<StoredMessage<O>>> {
+        let channel = <Self as RequestPProcessorAsync<O>>::collect_pending_rqs(self)?;
+        
+        let mut collected_rqs = Vec::new();
+        
+        while let Ok(mut message) = channel.recv() {
+            collected_rqs.append(&mut message);
+        }
+        
+        Ok(collected_rqs)
     }
 }
 
@@ -168,6 +184,8 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
             }
         };
 
+        metric_store_count(RQ_PP_WORKER_BATCH_SIZE_ID, messages.len());
+
         let start = Instant::now();
         let msg_count = messages.len();
 
@@ -177,9 +195,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
                 .group_by(|message| WD::get_worker_for_raw(message.header().from(), message.message().session_number(), self.thread_count))
                 .into_iter()
                 .for_each(|(worker, messages)| {
-                    let messages: Vec<StoredMessage<SMRSysMessage<D>>> = messages.collect();
-
-                    self.work_comms[worker].send(PreProcessorWorkMessage::ClientPoolRequestsReceived(messages));
+                    self.work_comms[worker].send(PreProcessorWorkMessage::ClientPoolRequestsReceived(messages.collect()));
                 });
 
             metric_duration(RQ_PP_CLIENT_MSG_ID, start.elapsed());

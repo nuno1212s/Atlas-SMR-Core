@@ -18,10 +18,7 @@ use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 use crate::exec::RequestType;
 
-use crate::metric::{
-    RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID,
-    RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID,
-};
+use crate::metric::{RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
 use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
@@ -194,6 +191,8 @@ impl<D> RequestPreProcessingWorker<D>
 
         let mut unordered_requests = Vec::with_capacity(requests.len());
 
+        let mut discarded_requests = 0;
+
         for message in requests.into_iter() {
             let digest = message.header().unique_digest();
 
@@ -202,6 +201,7 @@ impl<D> RequestPreProcessingWorker<D>
                 message.message(),
                 &digest,
             ) {
+                discarded_requests += 1;
                 continue;
             }
 
@@ -256,6 +256,7 @@ impl<D> RequestPreProcessingWorker<D>
             RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID,
             Some(processed_rqs as u64),
         );
+        metric_increment(RQ_PP_WORKER_DISCARDED_RQS_ID, Some(discarded_requests as u64));
     }
 
     /// Process the forwarded requests
@@ -440,8 +441,11 @@ impl<D> RequestPreProcessingWorker<D>
             .collect()
     }
 
-    fn clean_client(&self, _node_id: NodeId) {
-        todo!()
+    fn clean_client(&mut self, _node_id: NodeId) {
+        self.pending_requests
+            .retain(|_, msg| {
+                msg.header().from() != _node_id
+            });
     }
 
     #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]

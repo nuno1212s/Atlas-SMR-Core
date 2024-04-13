@@ -1,5 +1,5 @@
-use atlas_metrics::metrics::MetricKind;
 use atlas_metrics::{MetricLevel, MetricRegistry};
+use atlas_metrics::metrics::MetricKind;
 
 /// Request pre processing (010-019)
 pub const RQ_PP_CLIENT_MSG: &str = "RQ_PRE_PROCESSING_CLIENT_MSGS";
@@ -38,6 +38,12 @@ pub const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID: usize = 020;
 
 pub const RQ_PP_WORKER_STOPPED_TIME: &str = "RQ_PRE_PROCESSING_WORKER_STOPPED_TIME";
 pub const RQ_PP_WORKER_STOPPED_TIME_ID: usize = 022;
+
+pub const RQ_PP_WORKER_BATCH_SIZE: &str = "RQ_PRE_PROCESSING_BATCH_SIZE";
+pub const RQ_PP_WORKER_BATCH_SIZE_ID: usize = 023;
+
+pub const RQ_PP_WORKER_DISCARDED_RQS: &str = "RQ_PRE_PROCESSING_DISCARDED_REQUESTS";
+pub const RQ_PP_WORKER_DISCARDED_RQS_ID: usize = 024;
 
 pub fn metrics() -> Vec<MetricRegistry> {
     vec![
@@ -112,6 +118,20 @@ pub fn metrics() -> Vec<MetricRegistry> {
             RQ_PP_WORKER_STOPPED_TIME.to_string(),
             MetricKind::Duration,
             MetricLevel::Debug,
+        )
+            .into(),
+        (
+            RQ_PP_WORKER_BATCH_SIZE_ID,
+            RQ_PP_WORKER_BATCH_SIZE.to_string(),
+            MetricKind::Count,
+            MetricLevel::Info
+        )
+            .into(),
+        (
+            RQ_PP_WORKER_DISCARDED_RQS_ID,
+            RQ_PP_WORKER_DISCARDED_RQS.to_string(),
+            MetricKind::Counter,
+            MetricLevel::Debug
         )
             .into(),
     ]
