@@ -1,11 +1,11 @@
 use intmap::IntMap;
 use std::time::Instant;
 
-use tracing::{debug, error, instrument};
+use tracing::{debug, error, instrument, warn};
 
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-use atlas_common::channel::{ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, OneShotTx};
+use atlas_common::channel::{ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, TrySendReturnError};
 use atlas_common::collections::HashMap;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
@@ -19,7 +19,7 @@ use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::metric::{
-    RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
+    RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
     RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID,
     RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID,
 };
@@ -33,8 +33,8 @@ const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
 pub(super) enum PreProcessorWorkMessage<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     /// We have received requests from the clients, which need
     /// to be processed
@@ -61,19 +61,25 @@ where
     CleanClient(NodeId),
 }
 
+struct BatchProduction<O> {
+    pending_request_limit: usize,
+    pending_requests: Option<Vec<StoredMessage<O>>>,
+    production_tx: ChannelSyncTx<PreProcessorOutput<O>>,
+}
+
 /// Each worker will be assigned a given set of clients
 pub(super) struct RequestPreProcessingWorker<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     worker_id: usize,
     /// Receive work
     message_rx: ChannelSyncRx<PreProcessorWorkMessageOuter<D>>,
 
     /// Output for the requests that have been processed and should now be proposed
-    ordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
+    ordered_batch_prod: BatchProduction<SMRReq<D>>,
 
-    unordered_batch_production: ChannelSyncTx<PreProcessorOutput<SMRReq<D>>>,
+    unordered_batch_prod: BatchProduction<SMRReq<D>>,
 
     /// The latest operations seen by this worker.
     /// Since a given session will always be handled by the same worker,
@@ -84,8 +90,8 @@ where
 }
 
 impl<D> RequestPreProcessingWorker<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     pub fn new(
         worker_id: usize,
@@ -96,8 +102,8 @@ where
         Self {
             worker_id,
             message_rx,
-            ordered_batch_production,
-            unordered_batch_production,
+            ordered_batch_prod: ordered_batch_production.into(),
+            unordered_batch_prod: unordered_batch_production.into(),
             latest_ops: Default::default(),
             pending_requests: Default::default(),
         }
@@ -236,27 +242,11 @@ where
         }
 
         if !ordered_requests.is_empty() {
-            if let Err(err) = self.ordered_batch_production.try_send_return((
-                PreProcessorOutputMessage::from(ordered_requests),
-                Instant::now(),
-            )) {
-                error!(
-                    "Worker {} // Failed to send client requests to batch production: {:?}",
-                    self.worker_id, err
-                );
-            }
+            self.ordered_batch_prod.send(ordered_requests);
         }
 
         if !unordered_requests.is_empty() {
-            if let Err(err) = self.unordered_batch_production.try_send_return((
-                PreProcessorOutputMessage::from(unordered_requests),
-                Instant::now(),
-            )) {
-                error!(
-                    "Worker {} // Failed to send client requests to batch production: {:?}",
-                    self.worker_id, err
-                );
-            }
+            self.unordered_batch_prod.send(unordered_requests);
         }
 
         metric_duration(RQ_PP_WORKER_ORDER_PROCESS_ID, start.elapsed());
@@ -319,15 +309,8 @@ where
         );
 
         if !requests.is_empty() {
-            if let Err(err) = self
-                .ordered_batch_production
-                .try_send_return((PreProcessorOutputMessage::from(requests), Instant::now()))
-            {
-                error!(
-                    "Worker {} // Failed to send forwarded requests to batch production: {:?}",
-                    self.worker_id, err
-                );
-            }
+            self.ordered_batch_prod
+                .send(requests);
         }
     }
 
@@ -474,8 +457,8 @@ where
 }
 
 fn filter_message_type<D>(message: &OrderableMessage<D>, request_type: RequestType) -> bool
-where
-    D: ApplicationData,
+    where
+        D: ApplicationData,
 {
     match message {
         OrderableMessage::OrderedRequest(_) if matches!(request_type, RequestType::Ordered) => true,
@@ -488,13 +471,66 @@ where
     }
 }
 
+impl<O> BatchProduction<O> {
+    fn append_to_pending(&mut self, mut rqs: Vec<StoredMessage<O>>) {
+        if let Some(pending_rqs) = self.pending_requests.as_mut() {
+            if rqs.len() + pending_rqs.len() > self.pending_request_limit {
+                pending_rqs.append(&mut rqs.drain(..self.pending_request_limit - pending_rqs.len()).collect());
+            } else {
+                pending_rqs.append(&mut rqs);
+            }
+        } else if rqs.len() > self.pending_request_limit {
+            self.pending_requests = Some(rqs.drain(..self.pending_request_limit).collect());
+        } else {
+            self.pending_requests = Some(rqs);
+        }
+    }
+
+    fn send(&mut self, requests: Vec<StoredMessage<O>>) {
+        let requests = match self.pending_requests.take() {
+            Some(mut pending) => {
+                pending.extend(requests);
+                pending
+            }
+            None => requests,
+        };
+
+        match self.production_tx.try_send_return((PreProcessorOutputMessage::from(requests), Instant::now())) {
+            Ok(_) => {}
+            Err(err) => {
+                match err {
+                    TrySendReturnError::Full(messages) => {
+                        warn!("Batch production is full, pending requests: {}", messages.0.len());
+                        
+                        self.append_to_pending(messages.0.into());
+                    }
+                    TrySendReturnError::Disconnected(_) |
+                    TrySendReturnError::Timeout(_) => {
+                        error!("Failed to send requests to batch production: {:?}", err);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<O> From<ChannelSyncTx<PreProcessorOutput<O>>> for BatchProduction<O> {
+    fn from(value: ChannelSyncTx<PreProcessorOutput<O>>) -> Self {
+        Self {
+            pending_request_limit: 16384,
+            pending_requests: None,
+            production_tx: value,
+        }
+    }
+}
+
 pub(super) fn spawn_worker<D>(
     worker_id: usize,
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
 ) -> RequestPreProcessingWorkerHandle<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,
@@ -515,12 +551,12 @@ where
 }
 
 pub struct RequestPreProcessingWorkerHandle<D>(ChannelSyncTx<PreProcessorWorkMessageOuter<D>>)
-where
-    D: ApplicationData + 'static;
+    where
+        D: ApplicationData + 'static;
 
 impl<D> RequestPreProcessingWorkerHandle<D>
-where
-    D: ApplicationData + 'static,
+    where
+        D: ApplicationData + 'static,
 {
     pub fn send(&self, message: PreProcessorWorkMessage<D>) {
         self.0.send_return((Instant::now(), message)).unwrap()
