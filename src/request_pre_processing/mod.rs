@@ -4,10 +4,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
+use tracing::{instrument, debug, Level};
 
-use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx, new_bounded_sync};
+use atlas_common::channel;
+use atlas_common::channel::{ChannelMixedRx, ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, new_bounded_mixed, new_bounded_sync};
 use atlas_common::error::Result;
-use atlas_common::ordering::Orderable;
 use atlas_communication::message::StoredMessage;
 use atlas_core::messages::{ClientRqInfo, ForwardedRequestsMessage, SessionBased};
 use atlas_core::request_pre_processing::{BatchOutput, PreProcessorOutputMessage, RequestPProcessorAsync, RequestPProcessorSync, RequestPreProcessing, RequestPreProcessorTimeout, WorkPartitioner};
@@ -19,7 +20,7 @@ use atlas_smr_application::serialize::ApplicationData;
 
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-use crate::metric::{RQ_PP_CLIENT_COUNT_ID, RQ_PP_CLIENT_MSG_ID, RQ_PP_CLONE_RQS_ID, RQ_PP_COLLECT_PENDING_ID, RQ_PP_DECIDED_RQS_ID, RQ_PP_FWD_RQS_ID, RQ_PP_TIMEOUT_RQS_ID, RQ_PP_WORKER_BATCH_SIZE_ID, RQ_PP_WORKER_STOPPED_TIME_ID};
+use crate::metric::{RQ_PP_CLIENT_COUNT_ID, RQ_PP_CLIENT_MSG_ID, RQ_PP_CLONE_RQS_ID, RQ_PP_COLLECT_PENDING_ID, RQ_PP_DECIDED_RQS_ID, RQ_PP_FWD_RQS_ID, RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, RQ_PP_TIMEOUT_RQS_ID, RQ_PP_WORKER_BATCH_SIZE_ID, RQ_PP_WORKER_STOPPED_TIME_ID};
 use crate::request_pre_processing::worker::{PreProcessorWorkMessage, RequestPreProcessingWorkerHandle};
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
@@ -47,9 +48,9 @@ enum PreProcessorMessage<O> {
     /// A batch of requests that has been decided by the system
     DecidedBatch(Vec<ClientRqInfo>),
     /// Collect all pending messages from all workers.
-    CollectAllPendingMessages(ChannelSyncTx<Vec<StoredMessage<O>>>),
+    CollectAllPendingMessages(ChannelMixedTx<Vec<StoredMessage<O>>>),
     /// Clone a vec of requests to be used
-    CloneRequests(Vec<ClientRqInfo>, ChannelSyncTx<Vec<StoredMessage<O>>>),
+    CloneRequests(Vec<ClientRqInfo>, ChannelMixedTx<Vec<StoredMessage<O>>>),
 }
 
 /// Request pre processor handle
@@ -81,16 +82,16 @@ impl<O> RequestPreProcessorTimeout for RequestPreProcessor<O, > {
 }
 
 impl<O> RequestPProcessorAsync<O> for RequestPreProcessor<O> {
-    fn clone_pending_rqs(&self, client_rqs: Vec<ClientRqInfo>) -> Result<ChannelSyncRx<Vec<StoredMessage<O>>>> {
-        let (tx, rx) = new_bounded_sync(self.0.len(), Some("Clone Pending Requests"));
+    fn clone_pending_rqs(&self, client_rqs: Vec<ClientRqInfo>) -> Result<ChannelMixedRx<Vec<StoredMessage<O>>>> {
+        let (tx, rx) = channel::new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
 
         self.0.send(PreProcessorMessage::CloneRequests(client_rqs, tx))?;
 
         Ok(rx)
     }
 
-    fn collect_pending_rqs(&self) -> Result<ChannelSyncRx<Vec<StoredMessage<O>>>> {
-        let (tx, rx) = new_bounded_sync(self.0.len(), Some("Clone Pending Requests"));
+    fn collect_pending_rqs(&self) -> Result<ChannelMixedRx<Vec<StoredMessage<O>>>> {
+        let (tx, rx) = new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
 
         self.0.send(PreProcessorMessage::CollectAllPendingMessages(tx))?;
 
@@ -113,13 +114,13 @@ impl<O> RequestPProcessorSync<O> for RequestPreProcessor<O> {
 
     fn collect_pending_rqs(&self) -> Result<Vec<StoredMessage<O>>> {
         let channel = <Self as RequestPProcessorAsync<O>>::collect_pending_rqs(self)?;
-        
+
         let mut collected_rqs = Vec::new();
-        
+
         while let Ok(mut message) = channel.recv() {
             collected_rqs.append(&mut message);
         }
-        
+
         Ok(collected_rqs)
     }
 }
@@ -168,6 +169,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         }
     }
 
+    #[instrument(skip(self), level = Level::DEBUG)]
     fn process_client_rqs(&mut self)
         where
             D: ApplicationData,
@@ -204,6 +206,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
         metric_increment(RQ_PP_CLIENT_COUNT_ID, Some(msg_count as u64));
     }
 
+    #[instrument(skip(self), level = Level::DEBUG)]
     fn process_work_messages(&mut self)
         where
             D: ApplicationData,
@@ -230,6 +233,8 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
                     self.clone_pending_rqs(client_rqs, tx);
                 }
             }
+
+            metric_increment(RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, None);
         }
     }
 
@@ -327,7 +332,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
     fn collect_pending_rqs(
         &self,
         request_type: RequestType,
-        tx: ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>,
+        tx: ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) {
         let start = Instant::now();
 
@@ -342,7 +347,7 @@ impl<WD, D, NT> RequestPreProcessingOrchestrator<WD, D, NT>
     fn clone_pending_rqs(
         &self,
         digests: Vec<ClientRqInfo>,
-        responder: ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>,
+        responder: ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) where
         D: ApplicationData,
         WD: WorkPartitioner,

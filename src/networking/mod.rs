@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
+use anyhow::anyhow;
 
 use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
+use atlas_common::Err;
 use atlas_common::node_id::NodeId;
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::byte_stub::{
@@ -721,7 +723,15 @@ where
         &self,
         timeout: Option<Duration>,
     ) -> atlas_common::error::Result<Vec<StoredMessage<SMRSysMessage<D>>>> {
-        self.0.incoming_stub().receive_messages()
+        match timeout {
+            None => {
+                self.0.incoming_stub().receive_messages()
+            }
+            Some(timeout) => {
+                self.0.incoming_stub().try_receive_messages(Some(timeout))?
+                    .ok_or(anyhow!("Timeout reached"))
+            }
+        }
     }
 
     #[inline(always)]

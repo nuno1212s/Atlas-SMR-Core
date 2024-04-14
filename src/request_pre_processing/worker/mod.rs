@@ -4,7 +4,7 @@ use std::time::Instant;
 use tracing::{debug, error, instrument};
 
 use crate::message::OrderableMessage;
-use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx, OneShotTx};
+use atlas_common::channel::{ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, OneShotTx};
 use atlas_common::collections::HashMap;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
@@ -18,7 +18,7 @@ use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 use crate::exec::RequestType;
 
-use crate::metric::{RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
+use crate::metric::{RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
 use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
@@ -46,9 +46,9 @@ pub(super) enum PreProcessorWorkMessage<D>
     /// A batch of requests has been decided by the system
     DecidedBatch(Vec<ClientRqInfo>),
     /// Collect all pending messages from the given worker
-    CollectPendingMessages(RequestType, ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>),
+    CollectPendingMessages(RequestType, ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>),
     /// Clone a set of given pending requests
-    ClonePendingRequests(Vec<ClientRqInfo>, RequestType, ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>),
+    ClonePendingRequests(Vec<ClientRqInfo>, RequestType, ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>),
     /// Remove all requests associated with this client (due to a disconnection, for example)
     CleanClient(NodeId),
 }
@@ -132,6 +132,7 @@ impl<D> RequestPreProcessingWorker<D>
                 RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
                 sent_time.elapsed(),
             );
+            
         }
     }
 
@@ -407,13 +408,11 @@ impl<D> RequestPreProcessingWorker<D>
         &self,
         rq_type: RequestType,
         requests: Vec<ClientRqInfo>,
-        responder: ChannelSyncTx<Vec<StoredMessage<SMRReq<D>>>>,
+        responder: ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>,
     ) {
         let final_rqs = requests
             .into_iter()
-            .map(|rq_info| self.pending_requests.get(&rq_info.digest))
-            .filter(|opt| opt.is_some())
-            .map(Option::unwrap)
+            .filter_map(|rq_info| self.pending_requests.get(&rq_info.digest))
             .map(Clone::clone)
             .filter(|rq| filter_message_type(rq.message(), rq_type))
             .map(|rq| {

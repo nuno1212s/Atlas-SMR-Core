@@ -2,48 +2,51 @@ use atlas_metrics::{MetricLevel, MetricRegistry};
 use atlas_metrics::metrics::MetricKind;
 
 /// Request pre processing (010-019)
-pub const RQ_PP_CLIENT_MSG: &str = "RQ_PRE_PROCESSING_CLIENT_MSGS";
-pub const RQ_PP_CLIENT_MSG_ID: usize = 010;
+pub(crate) const RQ_PP_CLIENT_MSG: &str = "RQ_PRE_PROCESSING_CLIENT_MSGS";
+pub(crate) const RQ_PP_CLIENT_MSG_ID: usize = 010;
 
-pub const RQ_PP_CLIENT_COUNT: &str = "RQ_PRE_PROCESSING_CLIENT_COUNT";
-pub const RQ_PP_CLIENT_COUNT_ID: usize = 011;
+pub(crate) const RQ_PP_CLIENT_COUNT: &str = "RQ_PRE_PROCESSING_CLIENT_COUNT";
+pub(crate) const RQ_PP_CLIENT_COUNT_ID: usize = 011;
 
-pub const RQ_PP_FWD_RQS: &str = "RQ_PRE_PROCESSING_FWD_RQS";
-pub const RQ_PP_FWD_RQS_ID: usize = 012;
+pub(crate) const RQ_PP_FWD_RQS: &str = "RQ_PRE_PROCESSING_FWD_RQS";
+pub(crate) const RQ_PP_FWD_RQS_ID: usize = 012;
 
-pub const RQ_PP_DECIDED_RQS: &str = "RQ_PRE_PROCESSING_DECIDED_RQS";
-pub const RQ_PP_DECIDED_RQS_ID: usize = 013;
+pub(crate) const RQ_PP_DECIDED_RQS: &str = "RQ_PRE_PROCESSING_DECIDED_RQS";
+pub(crate) const RQ_PP_DECIDED_RQS_ID: usize = 013;
 
-pub const RQ_PP_TIMEOUT_RQS: &str = "RQ_PRE_PROCESSING_TIMEOUT_RQS";
-pub const RQ_PP_TIMEOUT_RQS_ID: usize = 014;
+pub(crate) const RQ_PP_TIMEOUT_RQS: &str = "RQ_PRE_PROCESSING_TIMEOUT_RQS";
+pub(crate) const RQ_PP_TIMEOUT_RQS_ID: usize = 014;
 
-pub const RQ_PP_COLLECT_PENDING: &str = "RQ_PRE_PROCESSING_COLLECT_PENDING";
-pub const RQ_PP_COLLECT_PENDING_ID: usize = 015;
+pub(crate) const RQ_PP_COLLECT_PENDING: &str = "RQ_PRE_PROCESSING_COLLECT_PENDING";
+pub(crate) const RQ_PP_COLLECT_PENDING_ID: usize = 015;
 
-pub const RQ_PP_CLONE_RQS: &str = "RQ_PRE_PROCESSING_CLONE_RQS";
-pub const RQ_PP_CLONE_RQS_ID: usize = 016;
+pub(crate) const RQ_PP_CLONE_RQS: &str = "RQ_PRE_PROCESSING_CLONE_RQS";
+pub(crate) const RQ_PP_CLONE_RQS_ID: usize = 016;
 
-pub const RQ_PP_WORKER_ORDER_PROCESS: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS";
-pub const RQ_PP_WORKER_ORDER_PROCESS_ID: usize = 017;
+pub(crate) const RQ_PP_WORKER_ORDER_PROCESS: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS";
+pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_ID: usize = 017;
 
-pub const RQ_PP_WORKER_ORDER_PROCESS_COUNT: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS_TIME";
-pub const RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID: usize = 018;
+pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_COUNT: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS_TIME";
+pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID: usize = 018;
 
-pub const RQ_PP_WORKER_DECIDED_PROCESS_TIME: &str = "RQ_PRE_PROCESSING_WORKER_DECIDED_PROCESS_TIME";
-pub const RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID: usize = 019;
+pub(crate) const RQ_PP_WORKER_DECIDED_PROCESS_TIME: &str = "RQ_PRE_PROCESSING_WORKER_DECIDED_PROCESS_TIME";
+pub(crate) const RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID: usize = 019;
 
-pub const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME: &str =
+pub(crate) const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME: &str =
     "RQ_PRE_PROCESSING_ORCHESTRATOR_WORKER_PASSING_TIME";
-pub const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID: usize = 020;
+pub(crate) const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID: usize = 020;
 
-pub const RQ_PP_WORKER_STOPPED_TIME: &str = "RQ_PRE_PROCESSING_WORKER_STOPPED_TIME";
-pub const RQ_PP_WORKER_STOPPED_TIME_ID: usize = 022;
+pub(crate) const RQ_PP_WORKER_STOPPED_TIME: &str = "RQ_PRE_PROCESSING_WORKER_STOPPED_TIME";
+pub(crate) const RQ_PP_WORKER_STOPPED_TIME_ID: usize = 022;
 
-pub const RQ_PP_WORKER_BATCH_SIZE: &str = "RQ_PRE_PROCESSING_BATCH_SIZE";
-pub const RQ_PP_WORKER_BATCH_SIZE_ID: usize = 023;
+pub(crate) const RQ_PP_WORKER_BATCH_SIZE: &str = "RQ_PRE_PROCESSING_BATCH_SIZE";
+pub(crate) const RQ_PP_WORKER_BATCH_SIZE_ID: usize = 023;
 
-pub const RQ_PP_WORKER_DISCARDED_RQS: &str = "RQ_PRE_PROCESSING_DISCARDED_REQUESTS";
-pub const RQ_PP_WORKER_DISCARDED_RQS_ID: usize = 024;
+pub(crate) const RQ_PP_WORKER_DISCARDED_RQS: &str = "RQ_PRE_PROCESSING_DISCARDED_REQUESTS";
+pub(crate) const RQ_PP_WORKER_DISCARDED_RQS_ID: usize = 024;
+
+pub(crate) const RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED: &str = "RQ_PRE_PROCESS_ORCHESTRATOR_MESSAGES_PROCESSED";
+pub(crate) const RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID: usize = 025;
 
 pub fn metrics() -> Vec<MetricRegistry> {
     vec![
@@ -130,6 +133,13 @@ pub fn metrics() -> Vec<MetricRegistry> {
         (
             RQ_PP_WORKER_DISCARDED_RQS_ID,
             RQ_PP_WORKER_DISCARDED_RQS.to_string(),
+            MetricKind::Counter,
+            MetricLevel::Debug
+        )
+            .into(),
+        (
+            RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID,
+            RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED.to_string(),
             MetricKind::Counter,
             MetricLevel::Debug
         )
