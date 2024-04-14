@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use tracing::{debug, error, instrument};
 
+use crate::exec::RequestType;
 use crate::message::OrderableMessage;
 use atlas_common::channel::{ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, OneShotTx};
 use atlas_common::collections::HashMap;
@@ -16,9 +17,12 @@ use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
-use crate::exec::RequestType;
 
-use crate::metric::{RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID};
+use crate::metric::{
+    RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
+    RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID,
+    RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID,
+};
 use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
@@ -29,8 +33,8 @@ const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
 pub(super) enum PreProcessorWorkMessage<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     /// We have received requests from the clients, which need
     /// to be processed
@@ -48,15 +52,19 @@ pub(super) enum PreProcessorWorkMessage<D>
     /// Collect all pending messages from the given worker
     CollectPendingMessages(RequestType, ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>),
     /// Clone a set of given pending requests
-    ClonePendingRequests(Vec<ClientRqInfo>, RequestType, ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>),
+    ClonePendingRequests(
+        Vec<ClientRqInfo>,
+        RequestType,
+        ChannelMixedTx<Vec<StoredMessage<SMRReq<D>>>>,
+    ),
     /// Remove all requests associated with this client (due to a disconnection, for example)
     CleanClient(NodeId),
 }
 
 /// Each worker will be assigned a given set of clients
 pub(super) struct RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     worker_id: usize,
     /// Receive work
@@ -76,8 +84,8 @@ pub(super) struct RequestPreProcessingWorker<D>
 }
 
 impl<D> RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     pub fn new(
         worker_id: usize,
@@ -132,7 +140,6 @@ impl<D> RequestPreProcessingWorker<D>
                 RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
                 sent_time.elapsed(),
             );
-            
         }
     }
 
@@ -257,7 +264,10 @@ impl<D> RequestPreProcessingWorker<D>
             RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID,
             Some(processed_rqs as u64),
         );
-        metric_increment(RQ_PP_WORKER_DISCARDED_RQS_ID, Some(discarded_requests as u64));
+        metric_increment(
+            RQ_PP_WORKER_DISCARDED_RQS_ID,
+            Some(discarded_requests as u64),
+        );
     }
 
     /// Process the forwarded requests
@@ -442,9 +452,7 @@ impl<D> RequestPreProcessingWorker<D>
 
     fn clean_client(&mut self, _node_id: NodeId) {
         self.pending_requests
-            .retain(|_, msg| {
-                msg.header().from() != _node_id
-            });
+            .retain(|_, msg| msg.header().from() != _node_id);
     }
 
     #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
@@ -466,13 +474,17 @@ impl<D> RequestPreProcessingWorker<D>
 }
 
 fn filter_message_type<D>(message: &OrderableMessage<D>, request_type: RequestType) -> bool
-    where D: ApplicationData {
+where
+    D: ApplicationData,
+{
     match message {
         OrderableMessage::OrderedRequest(_) if matches!(request_type, RequestType::Ordered) => true,
-        OrderableMessage::UnorderedRequest(_) if matches!(request_type, RequestType::Unordered) => true,
+        OrderableMessage::UnorderedRequest(_) if matches!(request_type, RequestType::Unordered) => {
+            true
+        }
         OrderableMessage::OrderedRequest(_) => false,
         OrderableMessage::UnorderedRequest(_) => false,
-        _ => unreachable!()
+        _ => unreachable!(),
     }
 }
 
@@ -481,8 +493,8 @@ pub(super) fn spawn_worker<D>(
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
 ) -> RequestPreProcessingWorkerHandle<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,
@@ -502,10 +514,14 @@ pub(super) fn spawn_worker<D>(
     RequestPreProcessingWorkerHandle(worker_tx)
 }
 
-pub struct RequestPreProcessingWorkerHandle<D>(ChannelSyncTx<PreProcessorWorkMessageOuter<D>>) where D: ApplicationData + 'static;
+pub struct RequestPreProcessingWorkerHandle<D>(ChannelSyncTx<PreProcessorWorkMessageOuter<D>>)
+where
+    D: ApplicationData + 'static;
 
 impl<D> RequestPreProcessingWorkerHandle<D>
-    where D: ApplicationData + 'static {
+where
+    D: ApplicationData + 'static,
+{
     pub fn send(&self, message: PreProcessorWorkMessage<D>) {
         self.0.send_return((Instant::now(), message)).unwrap()
     }

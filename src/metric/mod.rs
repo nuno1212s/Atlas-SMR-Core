@@ -1,5 +1,5 @@
-use atlas_metrics::{MetricLevel, MetricRegistry};
 use atlas_metrics::metrics::MetricKind;
+use atlas_metrics::{MetricLevel, MetricRegistry};
 
 /// Request pre processing (010-019)
 pub(crate) const RQ_PP_CLIENT_MSG: &str = "RQ_PRE_PROCESSING_CLIENT_MSGS";
@@ -26,10 +26,12 @@ pub(crate) const RQ_PP_CLONE_RQS_ID: usize = 016;
 pub(crate) const RQ_PP_WORKER_ORDER_PROCESS: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS";
 pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_ID: usize = 017;
 
-pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_COUNT: &str = "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS_TIME";
+pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_COUNT: &str =
+    "RQ_PRE_PROCESSING_WORKER_ORDERED_PROCESS_TIME";
 pub(crate) const RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID: usize = 018;
 
-pub(crate) const RQ_PP_WORKER_DECIDED_PROCESS_TIME: &str = "RQ_PRE_PROCESSING_WORKER_DECIDED_PROCESS_TIME";
+pub(crate) const RQ_PP_WORKER_DECIDED_PROCESS_TIME: &str =
+    "RQ_PRE_PROCESSING_WORKER_DECIDED_PROCESS_TIME";
 pub(crate) const RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID: usize = 019;
 
 pub(crate) const RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME: &str =
@@ -45,7 +47,8 @@ pub(crate) const RQ_PP_WORKER_BATCH_SIZE_ID: usize = 023;
 pub(crate) const RQ_PP_WORKER_DISCARDED_RQS: &str = "RQ_PRE_PROCESSING_DISCARDED_REQUESTS";
 pub(crate) const RQ_PP_WORKER_DISCARDED_RQS_ID: usize = 024;
 
-pub(crate) const RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED: &str = "RQ_PRE_PROCESS_ORCHESTRATOR_MESSAGES_PROCESSED";
+pub(crate) const RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED: &str =
+    "RQ_PRE_PROCESS_ORCHESTRATOR_MESSAGES_PROCESSED";
 pub(crate) const RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID: usize = 025;
 
 pub fn metrics() -> Vec<MetricRegistry> {
@@ -127,21 +130,21 @@ pub fn metrics() -> Vec<MetricRegistry> {
             RQ_PP_WORKER_BATCH_SIZE_ID,
             RQ_PP_WORKER_BATCH_SIZE.to_string(),
             MetricKind::Count,
-            MetricLevel::Info
+            MetricLevel::Info,
         )
             .into(),
         (
             RQ_PP_WORKER_DISCARDED_RQS_ID,
             RQ_PP_WORKER_DISCARDED_RQS.to_string(),
             MetricKind::Counter,
-            MetricLevel::Debug
+            MetricLevel::Debug,
         )
             .into(),
         (
             RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID,
             RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED.to_string(),
             MetricKind::Counter,
-            MetricLevel::Debug
+            MetricLevel::Debug,
         )
             .into(),
     ]
