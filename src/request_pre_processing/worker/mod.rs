@@ -501,7 +501,7 @@ impl<O> BatchProduction<O> {
                 match err {
                     TrySendReturnError::Full(messages) => {
                         warn!("Batch production is full, pending requests: {}", messages.0.len());
-                        
+
                         self.append_to_pending(messages.0.into());
                     }
                     TrySendReturnError::Disconnected(_) |
