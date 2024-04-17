@@ -16,7 +16,10 @@ use atlas_common::node_id::NodeId;
 use atlas_communication::message::StoredMessage;
 use atlas_core::messages::{ClientRqInfo, ForwardedRequestsMessage, SessionBased};
 use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
-use atlas_core::request_pre_processing::{BatchOutput, PreProcessorOutputMessage, RequestClientPreProcessing, RequestPProcessorAsync, RequestPProcessorSync, RequestPreProcessing, RequestPreProcessorTimeout, WorkPartitioner};
+use atlas_core::request_pre_processing::{
+    BatchOutput, PreProcessorOutputMessage, RequestClientPreProcessing, RequestPProcessorAsync,
+    RequestPProcessorSync, RequestPreProcessing, RequestPreProcessorTimeout, WorkPartitioner,
+};
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{metric_duration, metric_increment, metric_store_count};
@@ -62,7 +65,7 @@ enum PreProcessorMessage<O> {
     /// Clone a vec of requests to be used
     CloneRequests(Vec<ClientRqInfo>, ChannelMixedTx<Vec<StoredMessage<O>>>),
     /// Reset the stored session and operation sequence numbers for a given client
-    ResetClient(NodeId)
+    ResetClient(NodeId),
 }
 
 /// Request pre processor handle
@@ -152,11 +155,9 @@ impl<O> RequestPProcessorSync<O> for RequestPreProcessor<O> {
 }
 
 impl<O> RequestClientPreProcessing for RequestPreProcessor<O> {
-    
     fn reset_client(&self, client_id: NodeId) -> Result<()> {
         self.0.send(PreProcessorMessage::ResetClient(client_id))
     }
-    
 }
 
 impl<O> From<ChannelSyncTx<PreProcessorMessage<O>>> for RequestPreProcessor<O> {
@@ -280,11 +281,11 @@ where
             metric_increment(RQ_PP_ORCHESTRATOR_MESSAGES_PROCESSED_ID, None);
         }
     }
-    
+
     fn process_reset_client(&self, node: NodeId) {
-        self.work_comms.iter().for_each(|worker| {
-            worker.send(PreProcessorWorkMessage::CleanClient(node))
-        });
+        self.work_comms
+            .iter()
+            .for_each(|worker| worker.send(PreProcessorWorkMessage::CleanClient(node)));
     }
 
     fn process_forwarded_rqs(

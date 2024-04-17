@@ -17,9 +17,7 @@ use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{
     Buf, SerializedMessage, StoredMessage, StoredSerializedMessage,
 };
-use atlas_communication::reconfiguration::{
-    NetworkInformationProvider, ReconfigurationMessageHandler,
-};
+use atlas_communication::reconfiguration::{NetworkInformationProvider, NetworkReconfigurationCommunication};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{
     ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub,
@@ -88,7 +86,7 @@ where
     async fn bootstrap(
         network_info: Arc<NI>,
         config: Self::Config,
-        reconf: ReconfigurationMessageHandler,
+        reconf: NetworkReconfigurationCommunication,
     ) -> Result<Self>
     where
         Self: Sized;
@@ -255,7 +253,7 @@ where
     async fn bootstrap(
         network_info: Arc<NI>,
         config: Self::Config,
-        reconf: ReconfigurationMessageHandler,
+        reconf: NetworkReconfigurationCommunication,
     ) -> Result<Self>
     where
         Self: Sized,

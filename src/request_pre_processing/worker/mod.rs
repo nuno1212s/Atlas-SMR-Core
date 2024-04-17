@@ -19,9 +19,9 @@ use atlas_metrics::metrics::{metric_duration, metric_increment};
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::metric::{
-    RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
-    RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID,
-    RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID,
+    RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID,
+    RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID,
+    RQ_PP_WORKER_ORDER_PROCESS_ID,
 };
 use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
@@ -33,8 +33,8 @@ const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
 pub(super) enum PreProcessorWorkMessage<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     /// We have received requests from the clients, which need
     /// to be processed
@@ -69,8 +69,8 @@ struct BatchProduction<O> {
 
 /// Each worker will be assigned a given set of clients
 pub(super) struct RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     worker_id: usize,
     /// Receive work
@@ -90,8 +90,8 @@ pub(super) struct RequestPreProcessingWorker<D>
 }
 
 impl<D> RequestPreProcessingWorker<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     pub fn new(
         worker_id: usize,
@@ -309,8 +309,7 @@ impl<D> RequestPreProcessingWorker<D>
         );
 
         if !requests.is_empty() {
-            self.ordered_batch_prod
-                .send(requests);
+            self.ordered_batch_prod.send(requests);
         }
     }
 
@@ -457,8 +456,8 @@ impl<D> RequestPreProcessingWorker<D>
 }
 
 fn filter_message_type<D>(message: &OrderableMessage<D>, request_type: RequestType) -> bool
-    where
-        D: ApplicationData,
+where
+    D: ApplicationData,
 {
     match message {
         OrderableMessage::OrderedRequest(_) if matches!(request_type, RequestType::Ordered) => true,
@@ -475,7 +474,11 @@ impl<O> BatchProduction<O> {
     fn append_to_pending(&mut self, mut rqs: Vec<StoredMessage<O>>) {
         if let Some(pending_rqs) = self.pending_requests.as_mut() {
             if rqs.len() + pending_rqs.len() > self.pending_request_limit {
-                pending_rqs.append(&mut rqs.drain(..self.pending_request_limit - pending_rqs.len()).collect());
+                pending_rqs.append(
+                    &mut rqs
+                        .drain(..self.pending_request_limit - pending_rqs.len())
+                        .collect(),
+                );
             } else {
                 pending_rqs.append(&mut rqs);
             }
@@ -495,21 +498,24 @@ impl<O> BatchProduction<O> {
             None => requests,
         };
 
-        match self.production_tx.try_send_return((PreProcessorOutputMessage::from(requests), Instant::now())) {
+        match self
+            .production_tx
+            .try_send_return((PreProcessorOutputMessage::from(requests), Instant::now()))
+        {
             Ok(_) => {}
-            Err(err) => {
-                match err {
-                    TrySendReturnError::Full(messages) => {
-                        warn!("Batch production is full, pending requests: {}", messages.0.len());
+            Err(err) => match err {
+                TrySendReturnError::Full(messages) => {
+                    warn!(
+                        "Batch production is full, pending requests: {}",
+                        messages.0.len()
+                    );
 
-                        self.append_to_pending(messages.0.into());
-                    }
-                    TrySendReturnError::Disconnected(_) |
-                    TrySendReturnError::Timeout(_) => {
-                        error!("Failed to send requests to batch production: {:?}", err);
-                    }
+                    self.append_to_pending(messages.0.into());
                 }
-            }
+                TrySendReturnError::Disconnected(_) | TrySendReturnError::Timeout(_) => {
+                    error!("Failed to send requests to batch production: {:?}", err);
+                }
+            },
         }
     }
 }
@@ -529,8 +535,8 @@ pub(super) fn spawn_worker<D>(
     batch_tx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
     unordered_batch_rx: ChannelSyncTx<(PreProcessorOutputMessage<SMRReq<D>>, Instant)>,
 ) -> RequestPreProcessingWorkerHandle<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
         WORKER_QUEUE_SIZE,
@@ -551,12 +557,12 @@ pub(super) fn spawn_worker<D>(
 }
 
 pub struct RequestPreProcessingWorkerHandle<D>(ChannelSyncTx<PreProcessorWorkMessageOuter<D>>)
-    where
-        D: ApplicationData + 'static;
+where
+    D: ApplicationData + 'static;
 
 impl<D> RequestPreProcessingWorkerHandle<D>
-    where
-        D: ApplicationData + 'static,
+where
+    D: ApplicationData + 'static,
 {
     pub fn send(&self, message: PreProcessorWorkMessage<D>) {
         self.0.send_return((Instant::now(), message)).unwrap()
