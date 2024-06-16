@@ -69,7 +69,6 @@ enum PreProcessorMessage<O> {
 }
 
 /// Request pre processor handle
-#[derive(Clone)]
 pub struct RequestPreProcessor<O>(ChannelSyncTx<PreProcessorMessage<O>>);
 
 impl<O> RequestPreProcessing<O> for RequestPreProcessor<O> {
@@ -503,9 +502,9 @@ pub struct OrderedRqHandles<O>(RequestPreProcessor<O>, BatchOutput<O>);
 
 pub struct UnorderedRqHandles<O>(BatchOutput<O>);
 
-impl<O> Into<(RequestPreProcessor<O>, BatchOutput<O>)> for OrderedRqHandles<O> {
-    fn into(self) -> (RequestPreProcessor<O>, BatchOutput<O>) {
-        (self.0, self.1)
+impl<O> From<OrderedRqHandles<O>> for (RequestPreProcessor<O>, BatchOutput<O>) {
+    fn from(value: OrderedRqHandles<O>) -> Self {
+        value.into()
     }
 }
 
@@ -538,4 +537,16 @@ where
     };
 
     StoredMessage::new(header, msg)
+}
+
+impl<O> Clone for RequestPreProcessor<O> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<O> Clone for OrderedRqHandles<O> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), self.1.clone())
+    }
 }
