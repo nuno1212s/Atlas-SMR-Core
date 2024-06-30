@@ -503,12 +503,14 @@ pub struct OrderedRqHandles<O>(RequestPreProcessor<O>, BatchOutput<O>);
 pub struct UnorderedRqHandles<O>(BatchOutput<O>);
 
 impl<O> From<OrderedRqHandles<O>> for (RequestPreProcessor<O>, BatchOutput<O>) {
+    #[instrument(skip_all)]
     fn from(value: OrderedRqHandles<O>) -> Self {
-        value.into()
+        (value.0, value.1)
     }
 }
 
 impl<O> Into<BatchOutput<O>> for UnorderedRqHandles<O> {
+    #[instrument(skip_all)]
     fn into(self) -> BatchOutput<O> {
         self.0
     }
