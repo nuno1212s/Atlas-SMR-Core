@@ -17,7 +17,9 @@ use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{
     Buf, SerializedMessage, StoredMessage, StoredSerializedMessage,
 };
-use atlas_communication::reconfiguration::{NetworkInformationProvider, NetworkReconfigurationCommunication};
+use atlas_communication::reconfiguration::{
+    NetworkInformationProvider, NetworkReconfigurationCommunication,
+};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{
     ApplicationStub, BatchedModuleIncomingStub, BatchedNetworkStub, ModuleOutgoingStub,

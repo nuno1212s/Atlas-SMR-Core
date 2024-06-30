@@ -2,17 +2,19 @@ use std::sync::Arc;
 
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
+use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::byte_stub::{
     ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, PeerConnectionManager,
 };
-use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::lookup_table::EnumLookupTable;
-use atlas_communication::NetworkManagement;
-use atlas_communication::reconfiguration::{NetworkInformationProvider, NetworkReconfigurationCommunication};
+use atlas_communication::reconfiguration::{
+    NetworkInformationProvider, NetworkReconfigurationCommunication,
+};
 use atlas_communication::serialization::Serializable;
 use atlas_communication::stub::{
     ApplicationStub, NetworkStub, ReconfigurationStub, RegularNetworkStub,
 };
+use atlas_communication::NetworkManagement;
 use atlas_core::serialize::NoProtocol;
 use atlas_smr_application::serialize::ApplicationData;
 
