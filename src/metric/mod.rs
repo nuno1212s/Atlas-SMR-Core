@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use lazy_static::lazy_static;
+
 use atlas_metrics::metrics::MetricKind;
 use atlas_metrics::{MetricLevel, MetricRegistry};
 
@@ -149,3 +153,7 @@ pub fn metrics() -> Vec<MetricRegistry> {
             .into(),
     ]
 }
+
+lazy_static! (
+    pub static ref CLIENT_RQ_ENTER_RQ_PRE_PROCESSOR: Arc<str> = Arc::from("ENTER_RQ_PRE_PROCESSOR");
+);
