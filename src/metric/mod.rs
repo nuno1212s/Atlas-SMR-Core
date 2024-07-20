@@ -154,6 +154,6 @@ pub fn metrics() -> Vec<MetricRegistry> {
     ]
 }
 
-lazy_static! (
+lazy_static! {
     pub static ref CLIENT_RQ_ENTER_RQ_PRE_PROCESSOR: Arc<str> = Arc::from("ENTER_RQ_PRE_PROCESSOR");
-);
+}

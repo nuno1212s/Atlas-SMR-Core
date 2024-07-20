@@ -12,20 +12,22 @@ use atlas_common::node_id::NodeId;
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::message::{Header, StoredMessage};
 use atlas_core::messages::{create_rq_correlation_id, ClientRqInfo};
-use atlas_core::metric::{RQ_CLIENT_TRACK_GLOBAL_ID, RQ_CLIENT_TRACKING_ID};
+use atlas_core::metric::{RQ_CLIENT_TRACKING_ID, RQ_CLIENT_TRACK_GLOBAL_ID};
 use atlas_core::request_pre_processing::{
     operation_key, operation_key_raw, request_sender_from_key, PreProcessorOutput,
 };
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
-use atlas_metrics::metrics::{metric_correlation_time_start, metric_duration, metric_increment, metric_initialize_correlation_id};
+use atlas_metrics::metrics::{
+    metric_correlation_time_start, metric_duration, metric_increment,
+    metric_initialize_correlation_id,
+};
 use atlas_smr_application::serialize::ApplicationData;
 
 use crate::metric::{
-    CLIENT_RQ_ENTER_RQ_PRE_PROCESSOR,
-    RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID, RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID,
-    RQ_PP_WORKER_DISCARDED_RQS_ID, RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID,
-    RQ_PP_WORKER_ORDER_PROCESS_ID,
+    CLIENT_RQ_ENTER_RQ_PRE_PROCESSOR, RQ_PP_ORCHESTRATOR_WORKER_PASSING_TIME_ID,
+    RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, RQ_PP_WORKER_DISCARDED_RQS_ID,
+    RQ_PP_WORKER_ORDER_PROCESS_COUNT_ID, RQ_PP_WORKER_ORDER_PROCESS_ID,
 };
 use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
@@ -236,7 +238,7 @@ where
                 create_rq_correlation_id(message.header().from(), message.message()),
                 CLIENT_RQ_ENTER_RQ_PRE_PROCESSOR.clone(),
             );
-            
+
             metric_correlation_time_start(
                 RQ_CLIENT_TRACK_GLOBAL_ID,
                 create_rq_correlation_id(message.header().from(), message.message()),
