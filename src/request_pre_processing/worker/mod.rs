@@ -16,6 +16,7 @@ use atlas_core::metric::{RQ_CLIENT_TRACKING_ID, RQ_CLIENT_TRACK_GLOBAL_ID};
 use atlas_core::request_pre_processing::{
     operation_key, operation_key_raw, request_sender_from_key, PreProcessorOutput,
 };
+use atlas_core::messages::SessionBased;
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{
@@ -33,12 +34,12 @@ use crate::request_pre_processing::PreProcessorOutputMessage;
 use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
 
-const WORKER_QUEUE_SIZE: usize = 128;
+const WORKER_QUEUE_SIZE: usize = 1024;
 const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 
 pub type PreProcessorWorkMessageOuter<O> = (Instant, PreProcessorWorkMessage<O>);
 
-pub(super) enum PreProcessorWorkMessage<D>
+pub enum PreProcessorWorkMessage<D>
 where
     D: ApplicationData + 'static,
 {
@@ -74,7 +75,7 @@ struct BatchProduction<O> {
 }
 
 /// Each worker will be assigned a given set of clients
-pub(super) struct RequestPreProcessingWorker<D>
+pub struct RequestPreProcessingWorker<D>
 where
     D: ApplicationData + 'static,
 {
@@ -201,8 +202,8 @@ where
     }
 
     /// Process the ordered client pool requests
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
-    fn process_client_pool_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
+    pub fn process_client_pool_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let start = Instant::now();
 
         trace!(
@@ -227,7 +228,8 @@ where
                 message.message(),
                 &digest,
             ) {
-                debug!("Discarding request as it is not the most recent.");
+                debug!("Discarding request {:?} as it is not the most recent for session {:?} of client {:?}.",
+                message.message().sequence_number(), message.message().session_number(), message.header().from());
 
                 discarded_requests += 1;
                 continue;
@@ -286,8 +288,8 @@ where
     }
 
     /// Process the forwarded requests
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
-    fn process_forwarded_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
+    pub fn process_forwarded_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         let initial_size = requests.len();
 
         let requests: Vec<StoredMessage<SMRReq<D>>> = requests
@@ -343,7 +345,7 @@ where
     /// And for requests that we have seen and are still in the pending request list.
     /// If they are not in the pending request map that means they have already been executed
     /// And need not be processed
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, timeouts = timeouts.len()))]
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, timeouts = timeouts.len()))]
     fn process_timeouts(
         &mut self,
         timeouts: Vec<ModTimeout>,
@@ -404,7 +406,7 @@ where
     }
 
     /// Process a decided batch
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn process_decided_batch(&mut self, requests: Vec<ClientRqInfo>) {
         let start = Instant::now();
 
@@ -419,7 +421,7 @@ where
         metric_duration(RQ_PP_WORKER_DECIDED_PROCESS_TIME_ID, start.elapsed());
     }
 
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     /// Clone a set of pending requests
     fn clone_pending_requests(
         &self,
@@ -470,7 +472,7 @@ where
             .retain(|key, (_, _)| request_sender_from_key(key) != node_id);
     }
 
-    #[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
+    //#[instrument(skip_all, level = "debug", fields(worker_id = self.worker_id, request_len = requests.len()))]
     fn stopped_requests(&mut self, requests: Vec<StoredMessage<SMRSysMessage<D>>>) {
         requests.into_iter().for_each(|request| {
             let digest = request.header().unique_digest();
@@ -538,7 +540,7 @@ impl<O> BatchProduction<O> {
             Ok(_) => {}
             Err(err) => match err {
                 TrySendReturnError::Full(messages) => {
-                    warn!(
+                    debug!(
                         "Batch production is full, pending requests: {}",
                         messages.0.len()
                     );

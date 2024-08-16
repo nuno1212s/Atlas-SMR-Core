@@ -39,10 +39,10 @@ use crate::serialize::SMRSysMessage;
 use crate::SMRReq;
 
 mod tests;
-mod worker;
+pub mod worker;
 
 const ORCHESTRATOR_RCV_TIMEOUT: Option<Duration> = Some(Duration::from_micros(50));
-const PROPOSER_QUEUE_SIZE: usize = 128;
+const PROPOSER_QUEUE_SIZE: usize = 1024;
 
 const RQ_PRE_PROCESSING_ORCHESTRATOR: &str = "RQ-PRE-PROCESSING-ORCHESTRATOR";
 

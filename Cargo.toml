@@ -28,3 +28,13 @@ atlas-smr-application = { path = "../Atlas-SMR-Application" }
 atlas-metrics = { path = "../Atlas-Metrics" }
 serde = { version = "*", optional = true }
 lazy_static = "*"
+
+[dev-dependencies]
+divan = "*"
+lazy_static = "1"
+tracing-subscriber = "*"
+tracing-appender = "*"
+
+[[bench]]
+name = "request_pre_processor_benchmark"
+harness = false
