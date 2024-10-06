@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use atlas_common::channel::ChannelSyncTx;
+use atlas_common::channel::sync::ChannelSyncTx;
 use atlas_common::error::*;
 use atlas_common::globals::ReadOnly;
 use atlas_core::timeouts::timeout::TimeoutModHandle;

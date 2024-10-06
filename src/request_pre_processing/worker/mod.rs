@@ -1,11 +1,13 @@
 use intmap::IntMap;
 use std::time::Instant;
 
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, info, trace};
 
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-use atlas_common::channel::{ChannelMixedTx, ChannelSyncRx, ChannelSyncTx, TrySendReturnError};
+use atlas_common::channel::sync::{ChannelSyncTx, ChannelSyncRx};
+use atlas_common::channel::mixed::ChannelMixedTx;
+use atlas_common::channel::TrySendReturnError;
 use atlas_common::collections::HashMap;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
@@ -573,7 +575,7 @@ pub(super) fn spawn_worker<D>(
 where
     D: ApplicationData + 'static,
 {
-    let (worker_tx, worker_rx) = atlas_common::channel::new_bounded_sync(
+    let (worker_tx, worker_rx) = atlas_common::channel::sync::new_bounded_sync(
         WORKER_QUEUE_SIZE,
         Some(format!("RQ PreProcessing Worker Handle {}", worker_id).as_str()),
     );
