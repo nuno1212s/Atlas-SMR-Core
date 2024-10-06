@@ -6,7 +6,7 @@ mod rq_pre_processing_tests {
     };
     use crate::serialize::SMRSysMessage;
     use crate::SMRReq;
-    use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
+    use atlas_common::channel::sync::{ChannelSyncRx, ChannelSyncTx};
     use atlas_communication::message::StoredMessage;
     use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
     use atlas_core::request_pre_processing::work_dividers::WDRoundRobin;
@@ -80,7 +80,7 @@ mod rq_pre_processing_tests {
         MockNetworkHandle,
     ) {
         let (tx, rx) =
-            atlas_common::channel::new_bounded_sync(128, Some("MockNetworkHandle".to_string()));
+            atlas_common::channel::sync::new_bounded_sync(128, Some("MockNetworkHandle".to_string()));
         (tx, MockNetworkHandle { rx })
     }
 
