@@ -7,11 +7,9 @@ use std::time::Duration;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
-use atlas_common::Err;
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
 use atlas_communication::byte_stub::{
-    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, NodeIncomingStub,
-    NodeStubController, PeerConnectionManager,
+    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, PeerConnectionManager,
 };
 use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{
@@ -200,7 +198,7 @@ where
         PeerInn<RM, D, P, L, VT, S>,
     >,
 {
-    type Config = (BN::Config);
+    type Config = BN::Config;
 
     type ProtocolNode = ProtocolNode<
         NI,
@@ -260,7 +258,7 @@ where
     where
         Self: Sized,
     {
-        let (cfg) = config;
+        let cfg = config;
 
         let network_mngmt = NetworkManagement::<
             NI,

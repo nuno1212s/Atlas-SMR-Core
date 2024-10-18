@@ -14,7 +14,6 @@ use atlas_core::ordering_protocol::ExecutionResult;
 use atlas_core::timeouts::timeout::TimeoutableMod;
 
 use crate::state_transfer::networking::serialize::StateTransferMessage;
-use crate::state_transfer::networking::StateTransferSendNode;
 
 pub mod divisible_state;
 pub mod monolithic_state;

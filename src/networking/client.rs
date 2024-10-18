@@ -135,7 +135,7 @@ where
         config: Self::Config,
         reconf: NetworkReconfigurationCommunication,
     ) -> Result<Self> {
-        let (cfg) = config;
+        let cfg = config;
 
         let arc =
             NetworkManagement::<NI, CN, BN, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>::initialize(

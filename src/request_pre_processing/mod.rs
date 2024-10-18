@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use itertools::Itertools;
-use tracing::{debug, instrument, Level};
+use tracing::{instrument, Level};
 
 use atlas_common::channel;
 use atlas_common::channel::sync::{new_bounded_sync, ChannelSyncRx, ChannelSyncTx};
-use atlas_common::channel::mixed::{new_bounded_mixed, ChannelMixedRx, ChannelMixedTx};
+use atlas_common::channel::mixed::{ChannelMixedRx, ChannelMixedTx};
 use atlas_common::error::Result;
 use atlas_common::node_id::NodeId;
 use atlas_communication::message::StoredMessage;

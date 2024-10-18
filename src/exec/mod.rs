@@ -8,11 +8,9 @@ use atlas_communication::message::StoredMessage;
 use atlas_core::executor::DecisionExecutorHandle;
 use atlas_core::messages::SessionBased;
 use atlas_core::ordering_protocol::BatchedDecision;
-use atlas_logging_core::log_transfer::networking::serialize::LogTransferMessage;
 use atlas_smr_application::app::{UnorderedBatch, UpdateBatch};
 use atlas_smr_application::ExecutorHandle;
 
-use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::SMRRawReq;
 
 pub trait StateExecutorTrait {
