@@ -397,11 +397,14 @@ where
     }
 
     #[inline(always)]
-    fn forward_requests(
+    fn forward_requests<I>(
         &self,
         fwd_requests: ForwardedRequestsMessage<SMRReq<D>>,
-        targets: impl Iterator<Item = NodeId>,
-    ) -> std::result::Result<(), Vec<NodeId>> {
+        targets: I,
+    ) -> std::result::Result<(), Vec<NodeId>>
+    where
+        I: Iterator<Item = NodeId>,
+    {
         self.0.outgoing_stub().broadcast_signed(
             SystemMessage::ForwardedRequestMessage(fwd_requests),
             targets,
@@ -435,22 +438,28 @@ where
     }
 
     #[inline(always)]
-    fn broadcast(
+    fn broadcast<I>(
         &self,
         message: P::ProtocolMessage,
-        targets: impl Iterator<Item = NodeId>,
-    ) -> std::result::Result<(), Vec<NodeId>> {
+        targets: I,
+    ) -> std::result::Result<(), Vec<NodeId>>
+    where
+        I: Iterator<Item = NodeId>,
+    {
         self.0
             .outgoing_stub()
             .broadcast(SystemMessage::from_protocol_message(message), targets)
     }
 
     #[inline(always)]
-    fn broadcast_signed(
+    fn broadcast_signed<I>(
         &self,
         message: P::ProtocolMessage,
-        targets: impl Iterator<Item = NodeId>,
-    ) -> std::result::Result<(), Vec<NodeId>> {
+        targets: I,
+    ) -> std::result::Result<(), Vec<NodeId>>
+    where
+        I: Iterator<Item = NodeId>,
+    {
         self.0
             .outgoing_stub()
             .broadcast_signed(SystemMessage::from_protocol_message(message), targets)
