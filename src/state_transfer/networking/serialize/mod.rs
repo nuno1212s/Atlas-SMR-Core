@@ -2,14 +2,14 @@ use std::sync::Arc;
 
 use crate::state_transfer::networking::signature_ver::StateTransferVerificationHelper;
 use atlas_common::error::*;
-use atlas_common::serialization_helper::SerType;
+use atlas_common::serialization_helper::SerMsg;
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration::NetworkInformationProvider;
 
 /// The abstraction for state transfer protocol messages.
 /// This allows us to have any state transfer protocol work with the same backbone
 pub trait StateTransferMessage: Send {
-    type StateTransferMessage: SerType + Sync;
+    type StateTransferMessage: SerMsg + Sync;
 
     /// Verify the message and return the message if it is valid
     fn verify_state_message<NI, SVH>(

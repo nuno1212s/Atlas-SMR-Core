@@ -211,7 +211,7 @@ where
             CN,
             BN::ConnectionController,
             RM,
-            Service<D, P, L, VT>,
+            Service<D, P, L, VT>, 
             StateSys<S>,
             SMRSysMsg<D>,
         >,
@@ -381,7 +381,7 @@ where
     P: OrderingProtocolMessage<SMRReq<D>>,
     L: LogTransferMessage<SMRReq<D>, P>,
     VT: ViewTransferProtocolMessage,
-    NT: RegularNetworkStub<Service<D, P, L, VT>>,
+    NT: RegularNetworkStub<Service<D, P, L, VT>> + 'static,
     NI: NetworkInformationProvider + 'static,
 {
     type NetworkInfoProvider = NI;
