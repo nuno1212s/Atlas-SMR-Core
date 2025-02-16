@@ -7,8 +7,8 @@ use itertools::Itertools;
 use tracing::{instrument, Level};
 
 use atlas_common::channel;
-use atlas_common::channel::sync::{new_bounded_sync, ChannelSyncRx, ChannelSyncTx};
 use atlas_common::channel::mixed::{ChannelMixedRx, ChannelMixedTx};
+use atlas_common::channel::sync::{new_bounded_sync, ChannelSyncRx, ChannelSyncTx};
 use atlas_common::error::Result;
 use atlas_common::node_id::NodeId;
 use atlas_communication::message::StoredMessage;
@@ -107,7 +107,8 @@ impl<O> RequestPProcessorAsync<O> for RequestPreProcessor<O> {
         &self,
         client_rqs: Vec<ClientRqInfo>,
     ) -> Result<ChannelMixedRx<Vec<StoredMessage<O>>>> {
-        let (tx, rx) = channel::mixed::new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
+        let (tx, rx) =
+            channel::mixed::new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
 
         self.0
             .send(PreProcessorMessage::CloneRequests(client_rqs, tx))?;
@@ -116,7 +117,8 @@ impl<O> RequestPProcessorAsync<O> for RequestPreProcessor<O> {
     }
 
     fn collect_pending_rqs(&self) -> Result<ChannelMixedRx<Vec<StoredMessage<O>>>> {
-        let (tx, rx) = channel::mixed::new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
+        let (tx, rx) =
+            channel::mixed::new_bounded_mixed(self.0.len(), Some("Clone Pending Requests"));
 
         self.0
             .send(PreProcessorMessage::CollectAllPendingMessages(tx))?;

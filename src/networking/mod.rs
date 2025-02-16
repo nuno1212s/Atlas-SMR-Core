@@ -211,7 +211,7 @@ where
             CN,
             BN::ConnectionController,
             RM,
-            Service<D, P, L, VT>, 
+            Service<D, P, L, VT>,
             StateSys<S>,
             SMRSysMsg<D>,
         >,

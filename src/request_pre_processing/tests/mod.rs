@@ -79,8 +79,10 @@ mod rq_pre_processing_tests {
         ChannelSyncTx<Vec<StoredMessage<SMRSysMessage<AppData>>>>,
         MockNetworkHandle,
     ) {
-        let (tx, rx) =
-            atlas_common::channel::sync::new_bounded_sync(128, Some("MockNetworkHandle".to_string()));
+        let (tx, rx) = atlas_common::channel::sync::new_bounded_sync(
+            128,
+            Some("MockNetworkHandle".to_string()),
+        );
         (tx, MockNetworkHandle { rx })
     }
 

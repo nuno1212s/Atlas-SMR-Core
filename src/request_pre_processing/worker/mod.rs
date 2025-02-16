@@ -5,8 +5,8 @@ use tracing::{debug, error, info, trace};
 
 use crate::exec::RequestType;
 use crate::message::OrderableMessage;
-use atlas_common::channel::sync::{ChannelSyncTx, ChannelSyncRx};
 use atlas_common::channel::mixed::ChannelMixedTx;
+use atlas_common::channel::sync::{ChannelSyncRx, ChannelSyncTx};
 use atlas_common::channel::TrySendReturnError;
 use atlas_common::collections::HashMap;
 use atlas_common::crypto::hash::Digest;
@@ -16,7 +16,10 @@ use atlas_communication::message::{Header, StoredMessage};
 use atlas_core::messages::SessionBased;
 use atlas_core::messages::{create_rq_correlation_id, ClientRqInfo};
 use atlas_core::metric::{RQ_CLIENT_TRACKING_ID, RQ_CLIENT_TRACK_GLOBAL_ID};
-use atlas_core::request_pre_processing::{operation_key, operation_key_raw, request_sender_from_key, PreProcessorOutput, PreProcessorOutputSt};
+use atlas_core::request_pre_processing::{
+    operation_key, operation_key_raw, request_sender_from_key, PreProcessorOutput,
+    PreProcessorOutputSt,
+};
 use atlas_core::timeouts::timeout::ModTimeout;
 use atlas_core::timeouts::TimeoutID;
 use atlas_metrics::metrics::{
@@ -38,7 +41,10 @@ const WORKER_QUEUE_SIZE: usize = 1024;
 const WORKER_THREAD_NAME: &str = "RQ-PRE-PROCESSING-WORKER-{}";
 
 #[derive(Clone)]
-pub struct PreProcessorWorkMessageSt<O: ApplicationData + 'static>(Instant, PreProcessorWorkMessage<O>);
+pub struct PreProcessorWorkMessageSt<O: ApplicationData + 'static>(
+    Instant,
+    PreProcessorWorkMessage<O>,
+);
 
 pub type PreProcessorWorkMessageOuter<O> = PreProcessorWorkMessageSt<O>;
 
@@ -528,7 +534,10 @@ impl<O> BatchProduction<O> {
         }
     }
 
-    fn send(&mut self, requests: Vec<StoredMessage<O>>) where O: Clone {
+    fn send(&mut self, requests: Vec<StoredMessage<O>>)
+    where
+        O: Clone,
+    {
         let requests = match self.pending_requests.take() {
             Some(mut pending) => {
                 pending.extend(requests);
@@ -537,10 +546,10 @@ impl<O> BatchProduction<O> {
             None => requests,
         };
 
-        match self
-            .production_tx
-            .try_send_return(PreProcessorOutputSt(PreProcessorOutputMessage::from(requests), Instant::now()))
-        {
+        match self.production_tx.try_send_return(PreProcessorOutputSt(
+            PreProcessorOutputMessage::from(requests),
+            Instant::now(),
+        )) {
             Ok(_) => {}
             Err(err) => match err {
                 TrySendReturnError::Full(messages) => {
@@ -604,11 +613,16 @@ where
     D: ApplicationData + 'static,
 {
     pub fn send(&self, message: PreProcessorWorkMessage<D>) {
-        self.0.send(PreProcessorWorkMessageSt(Instant::now(), message)).unwrap()
+        self.0
+            .send(PreProcessorWorkMessageSt(Instant::now(), message))
+            .unwrap()
     }
 }
 
-impl<D> From<PreProcessorWorkMessageOuter<D>> for (Instant, PreProcessorWorkMessage<D> ) where D: ApplicationData {
+impl<D> From<PreProcessorWorkMessageOuter<D>> for (Instant, PreProcessorWorkMessage<D>)
+where
+    D: ApplicationData,
+{
     fn from(value: PreProcessorWorkMessageOuter<D>) -> (Instant, PreProcessorWorkMessage<D>) {
         (value.0, value.1)
     }
