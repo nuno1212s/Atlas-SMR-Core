@@ -1,7 +1,7 @@
 #[divan::bench_group()]
 mod pre_processor_benches {
     use atlas_common::channel;
-    use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
+    use atlas_common::channel::{ChannelSyncT, ChannelSyncTx};
     use atlas_core::request_pre_processing::PreProcessorOutput;
     use atlas_smr_application::serialize::ApplicationData;
     use atlas_smr_core::request_pre_processing::worker::{
