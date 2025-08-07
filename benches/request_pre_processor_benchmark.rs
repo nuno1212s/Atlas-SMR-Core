@@ -1,7 +1,7 @@
 #[divan::bench_group()]
 mod pre_processor_benches {
     use atlas_common::channel;
-    use atlas_common::channel::{ChannelSyncT, ChannelSyncTx};
+    use atlas_common::channel::sync::{ChannelSyncRx, ChannelSyncTx};
     use atlas_core::request_pre_processing::PreProcessorOutput;
     use atlas_smr_application::serialize::ApplicationData;
     use atlas_smr_core::request_pre_processing::worker::{
@@ -23,10 +23,10 @@ mod pre_processor_benches {
         D: ApplicationData + 'static,
     {
         let (message_channel_tx, message_channel_rx) =
-            channel::new_bounded_sync(1, Some("RequestPreProcessor"));
-        let (ordered_tx, ordered_rx) = channel::new_unbounded_sync(Some("Ordered Pre Processor"));
+            channel::sync::new_bounded_sync(1, Some("RequestPreProcessor"));
+        let (ordered_tx, ordered_rx) = channel::sync::new_unbounded_sync(Some("Ordered Pre Processor"));
         let (unordered_tx, unordered_rx) =
-            channel::new_unbounded_sync(Some("Unordered Pre Processor"));
+            channel::sync::new_unbounded_sync(Some("Unordered Pre Processor"));
 
         let worker =
             RequestPreProcessingWorker::new(0, message_channel_rx, ordered_tx, unordered_tx);
