@@ -46,6 +46,15 @@ pub struct PreProcessorWorkMessageSt<O: ApplicationData + 'static>(
     PreProcessorWorkMessage<O>,
 );
 
+impl<O> PreProcessorWorkMessageSt<O>
+where
+    O: ApplicationData + 'static,
+{
+    pub fn new(message: PreProcessorWorkMessage<O>) -> Self {
+        Self(Instant::now(), message)
+    }
+}
+
 pub type PreProcessorWorkMessageOuter<O> = PreProcessorWorkMessageSt<O>;
 
 #[derive(Clone)]

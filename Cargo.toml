@@ -28,6 +28,7 @@ atlas-smr-application = { path = "../Atlas-SMR-Application" }
 atlas-metrics = { path = "../Atlas-Metrics" }
 serde = { version = "*", optional = true }
 lazy_static = "*"
+once_cell = "1.21.3"
 
 [dev-dependencies]
 divan = "*"
