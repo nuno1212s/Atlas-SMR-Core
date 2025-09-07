@@ -17,7 +17,6 @@ mod pre_processor_benches {
     use divan::Bencher;
     use std::io::{Read, Write};
     use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::Ordering;
     use std::sync::{Arc, OnceLock};
     use std::thread;
     #[cfg(feature = "serialize_serde")]
