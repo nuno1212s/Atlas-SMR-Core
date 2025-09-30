@@ -23,3 +23,18 @@ runs:
       with:
         repository: nuno1212s/Atlas-Metrics
         path: Atlas-Metrics
+    - name: Checkout Atlas-Logging-Core
+      uses: actions/checkout@v4
+      with:
+        repository: nuno1212s/Atlas-Logging-Core
+        path: Atlas-Logging-Core
+    - name: Checkout atlas-smr-application
+      uses: actions/checkout@v4
+      with:
+        repository: nuno1212s/Atlas-SMR-Application
+        path: Atlas-SMR-Application
+    - name: Checkout Atlas-Core
+      uses: actions/checkout@v4
+      with:
+        repository: nuno1212s/Atlas-Core
+        path: Atlas-Core
