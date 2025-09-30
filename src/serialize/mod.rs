@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use atlas_common::error::*;
+use atlas_common::phantom::FPhantom;
 use atlas_communication::message::Header;
 use atlas_communication::reconfiguration::NetworkInformationProvider;
 use atlas_communication::serialization::{InternalMessageVerifier, Serializable};
@@ -25,13 +26,13 @@ pub struct Service<
     P: OrderingProtocolMessage<SMRReq<D>>,
     L: LogTransferMessage<SMRReq<D>, P>,
     VT: ViewTransferProtocolMessage,
->(PhantomData<fn() -> (D, P, L, VT)>);
+>(FPhantom<(D, P, L, VT)>);
 
 pub type ServiceMessage<
-    D: ApplicationData,
-    P: OrderingProtocolMessage<SMRReq<D>>,
-    L: LogTransferMessage<SMRReq<D>, P>,
-    VT: ViewTransferProtocolMessage,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
 > = <Service<D, P, L, VT> as Serializable>::Message;
 
 impl<D, P, L, VT> Serializable for Service<D, P, L, VT>
@@ -72,7 +73,7 @@ where
         info_provider: &Arc<NI>,
         header: &Header,
         msg: &ServiceMessage<D, P, L, VT>,
-    ) -> atlas_common::error::Result<()>
+    ) -> Result<()>
     where
         NI: NetworkInformationProvider + 'static,
     {
@@ -105,7 +106,6 @@ where
                 Ok(())
             }
             SystemMessage::ForwardedProtocolMessage(fwd_protocol) => {
-                let header = fwd_protocol.header();
                 let message = fwd_protocol.message();
 
                 P::internally_verify_message::<NI, SigVerifier<NI, D, P, L, VT>>(
@@ -150,13 +150,14 @@ where
     S: StateTransferMessage,
 {
     fn verify_message<NI>(
-        info_provider: &Arc<NI>,
-        header: &Header,
-        message: &S::StateTransferMessage,
+        _info_provider: &Arc<NI>,
+        _header: &Header,
+        _message: &S::StateTransferMessage,
     ) -> Result<()>
     where
         NI: NetworkInformationProvider,
     {
+        //TODO: actually verify
         Ok(())
     }
 }
@@ -167,7 +168,7 @@ where
 /// our applications data
 pub struct SMRSysMsg<D>(PhantomData<fn() -> D>);
 
-pub type SMRSysMessage<D> = <SMRSysMsg<D> as Serializable>::Message;
+pub type SMRSysMessage<D: ApplicationData + 'static> = <SMRSysMsg<D> as Serializable>::Message;
 
 impl<D> Serializable for SMRSysMsg<D>
 where
@@ -182,9 +183,9 @@ where
     D: ApplicationData,
 {
     fn verify_message<NI>(
-        info_provider: &Arc<NI>,
-        header: &Header,
-        message: &OrderableMessage<D>,
+        _info_provider: &Arc<NI>,
+        _header: &Header,
+        _message: &OrderableMessage<D>,
     ) -> Result<()>
     where
         NI: NetworkInformationProvider,
@@ -199,14 +200,15 @@ impl StateTransferMessage for NoProtocol {
     type StateTransferMessage = ();
 
     fn verify_state_message<NI, SVH>(
-        network_info: &Arc<NI>,
-        header: &Header,
+        _network_info: &Arc<NI>,
+        _header: &Header,
         message: Self::StateTransferMessage,
-    ) -> atlas_common::error::Result<Self::StateTransferMessage>
+    ) -> Result<Self::StateTransferMessage>
     where
         NI: NetworkInformationProvider,
         SVH: StateTransferVerificationHelper,
     {
+        //TODO: actually verify
         Ok(message)
     }
 

@@ -1,11 +1,11 @@
 #![cfg(test)]
-
 mod rq_pre_processing_tests {
     use crate::request_pre_processing::{
-        initialize_request_pre_processor, OrderedRqHandles, RequestPreProcessor, UnorderedRqHandles,
+        initialize_request_pre_processor, OrderedRqHandles, UnorderedRqHandles,
     };
     use crate::serialize::SMRSysMessage;
     use crate::SMRReq;
+    use anyhow::Context;
     use atlas_common::channel::sync::{ChannelSyncRx, ChannelSyncTx};
     use atlas_communication::message::StoredMessage;
     use atlas_core::request_pre_processing::network::RequestPreProcessingHandle;
@@ -17,32 +17,33 @@ mod rq_pre_processing_tests {
 
     struct AppData;
 
+    #[allow(dead_code)]
     impl ApplicationData for AppData {
         type Request = ();
         type Reply = ();
 
-        fn serialize_request<W>(w: W, request: &Self::Request) -> atlas_common::error::Result<()>
+        fn serialize_request<W>(_w: W, _request: &Self::Request) -> atlas_common::error::Result<()>
         where
             W: Write,
         {
             Ok(())
         }
 
-        fn deserialize_request<R>(r: R) -> atlas_common::error::Result<Self::Request>
+        fn deserialize_request<R>(_r: R) -> atlas_common::error::Result<Self::Request>
         where
             R: Read,
         {
             Ok(())
         }
 
-        fn serialize_reply<W>(w: W, reply: &Self::Reply) -> atlas_common::error::Result<()>
+        fn serialize_reply<W>(_w: W, _reply: &Self::Reply) -> atlas_common::error::Result<()>
         where
             W: Write,
         {
             Ok(())
         }
 
-        fn deserialize_reply<R>(r: R) -> atlas_common::error::Result<Self::Reply>
+        fn deserialize_reply<R>(_r: R) -> atlas_common::error::Result<Self::Reply>
         where
             R: Read,
         {
@@ -50,6 +51,7 @@ mod rq_pre_processing_tests {
         }
     }
 
+    #[allow(dead_code)]
     struct MockNetworkHandle {
         rx: ChannelSyncRx<Vec<StoredMessage<SMRSysMessage<AppData>>>>,
     }
@@ -60,7 +62,7 @@ mod rq_pre_processing_tests {
             timeout: Option<Duration>,
         ) -> atlas_common::error::Result<Vec<StoredMessage<SMRSysMessage<AppData>>>> {
             match timeout {
-                None => self.rx.recv(),
+                None => self.rx.recv().context("Failed to receive message"),
                 Some(timeout) => self.rx.recv_timeout(timeout).map_err(|e| e.into()),
             }
         }
@@ -75,6 +77,7 @@ mod rq_pre_processing_tests {
         }
     }
 
+    #[allow(dead_code)]
     fn setup_mock_network() -> (
         ChannelSyncTx<Vec<StoredMessage<SMRSysMessage<AppData>>>>,
         MockNetworkHandle,
@@ -86,6 +89,7 @@ mod rq_pre_processing_tests {
         (tx, MockNetworkHandle { rx })
     }
 
+    #[allow(dead_code)]
     fn setup_rq_pre_processor<NT>(
         network: NT,
     ) -> (
@@ -97,4 +101,6 @@ mod rq_pre_processing_tests {
     {
         initialize_request_pre_processor::<WDRoundRobin, AppData, NT>(1, &Arc::new(network))
     }
+
+    //TODO: Add tests
 }

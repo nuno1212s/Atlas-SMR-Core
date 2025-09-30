@@ -55,7 +55,7 @@ where
     }
 }
 
-pub type PreProcessorWorkMessageOuter<O> = PreProcessorWorkMessageSt<O>;
+pub type PreProcessorWorkMessageOuter<O: ApplicationData + 'static> = PreProcessorWorkMessageSt<O>;
 
 #[derive(Clone)]
 pub enum PreProcessorWorkMessage<D>
@@ -597,14 +597,14 @@ where
 {
     let (worker_tx, worker_rx) = atlas_common::channel::sync::new_bounded_sync(
         WORKER_QUEUE_SIZE,
-        Some(format!("RQ PreProcessing Worker Handle {}", worker_id).as_str()),
+        Some(format!("RQ PreProcessing Worker Handle {worker_id}").as_str()),
     );
 
     let worker =
         RequestPreProcessingWorker::new(worker_id, worker_rx, batch_tx, unordered_batch_rx);
 
     std::thread::Builder::new()
-        .name(format!("{}{}", WORKER_THREAD_NAME, worker_id))
+        .name(format!("{WORKER_THREAD_NAME}{worker_id}"))
         .spawn(move || {
             worker.run();
         })

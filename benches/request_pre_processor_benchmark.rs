@@ -15,12 +15,12 @@ mod pre_processor_benches {
     };
     use atlas_smr_core::SMRReq;
     use divan::Bencher;
+    #[cfg(feature = "serialize_serde")]
+    use serde::{Deserialize, Serialize};
     use std::io::{Read, Write};
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, OnceLock};
     use std::thread;
-    #[cfg(feature = "serialize_serde")]
-    use serde::{Serialize, Deserialize};
 
     #[derive(Default, Clone, Debug)]
     #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
@@ -30,28 +30,28 @@ mod pre_processor_benches {
         type Request = MockAppData;
         type Reply = MockAppData;
 
-        fn serialize_request<W>(w: W, request: &Self::Request) -> atlas_common::error::Result<()>
+        fn serialize_request<W>(_w: W, _request: &Self::Request) -> atlas_common::error::Result<()>
         where
             W: Write,
         {
             todo!()
         }
 
-        fn deserialize_request<R>(r: R) -> atlas_common::error::Result<Self::Request>
+        fn deserialize_request<R>(_r: R) -> atlas_common::error::Result<Self::Request>
         where
             R: Read,
         {
             todo!()
         }
 
-        fn serialize_reply<W>(w: W, reply: &Self::Reply) -> atlas_common::error::Result<()>
+        fn serialize_reply<W>(_w: W, _reply: &Self::Reply) -> atlas_common::error::Result<()>
         where
             W: Write,
         {
             todo!()
         }
 
-        fn deserialize_reply<R>(r: R) -> atlas_common::error::Result<Self::Reply>
+        fn deserialize_reply<R>(_r: R) -> atlas_common::error::Result<Self::Reply>
         where
             R: Read,
         {
@@ -59,6 +59,7 @@ mod pre_processor_benches {
         }
     }
 
+    #[allow(dead_code)]
     struct PreProcessorHandles<D>
     where
         D: ApplicationData + 'static,
@@ -68,6 +69,7 @@ mod pre_processor_benches {
         unordered_rx: ChannelSyncRx<PreProcessorOutput<SMRReq<D>>>,
     }
 
+    #[allow(dead_code)]
     fn setup_worker<D>() -> (RequestPreProcessingWorker<D>, PreProcessorHandles<D>)
     where
         D: ApplicationData + 'static,
@@ -95,6 +97,7 @@ mod pre_processor_benches {
     static HANDLES: OnceLock<PreProcessorHandles<MockAppData>> = OnceLock::new();
     static RUNNING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
+    #[allow(dead_code)]
     fn setup() {
         if RUNNING.get().is_some() {
             return;
@@ -111,7 +114,8 @@ mod pre_processor_benches {
         thread::spawn(move || {
             let worker = worker;
 
-                worker.run();
+            //TODO: Make this use the running flag
+            worker.run();
         });
 
         HANDLES
@@ -120,15 +124,16 @@ mod pre_processor_benches {
             .expect("Failed to set handles");
     }
 
+    #[allow(dead_code)]
     #[divan::bench(args = [(1000, 100), (10000, 1000), (100_000, 10000)])]
     #[ignore]
-    fn benchmark_pre_processor(bencher: Bencher, requests: (u32, u32)) {
+    fn benchmark_pre_processor(_bencher: Bencher, requests: (u32, u32)) {
         //TODO: Actually write relevant code for the pre-processor worker
         let handles = HANDLES.get().unwrap();
 
-        let (requests, requests_per_batch) = requests;
+        let (requests, _requests_per_batch) = requests;
 
-        let req = SMRReq::<MockAppData>::new(SeqNo::ZERO, SeqNo::ZERO, MockAppData::default());
+        let req = SMRReq::<MockAppData>::new(SeqNo::ZERO, SeqNo::ZERO, MockAppData);
 
         let wire_message = WireMessage::new(
             NodeId(1000),
@@ -142,7 +147,7 @@ mod pre_processor_benches {
 
         let work_msg =
             PreProcessorWorkMessage::ClientPoolRequestsReceived(vec![StoredMessage::new(
-                wire_message.header().clone(),
+                *wire_message.header(),
                 OrderableMessage::OrderedRequest(req),
             )]);
 

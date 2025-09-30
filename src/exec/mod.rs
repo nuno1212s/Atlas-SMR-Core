@@ -54,7 +54,7 @@ pub struct WrappedExecHandle<R>(pub ExecutorHandle<R>);
 
 impl<R> Clone for WrappedExecHandle<R> {
     fn clone(&self) -> Self {
-        WrappedExecHandle { 0: self.0.clone() }
+        WrappedExecHandle(self.0.clone())
     }
 }
 

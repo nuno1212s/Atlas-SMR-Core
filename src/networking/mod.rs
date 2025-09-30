@@ -1,15 +1,17 @@
 use anyhow::anyhow;
 use std::collections::BTreeMap;
-use std::marker::PhantomData;
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
 use atlas_common::crypto::hash::Digest;
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
+use atlas_common::phantom::FPhantom;
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
+use atlas_communication::byte_stub::peer_conn_manager::PeerConnectionManager;
 use atlas_communication::byte_stub::{
-    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, PeerConnectionManager,
+    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub,
 };
 use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::message::{
@@ -24,7 +26,7 @@ use atlas_communication::stub::{
     NetworkStub, OperationStub, ReconfigurationStub, RegularNetworkStub, StateProtocolStub,
 };
 use atlas_communication::NetworkManagement;
-use atlas_core::messages::ForwardedRequestsMessage;
+use atlas_core::messages::{ForwardedRequestsMessage, RequestMessage};
 use atlas_core::ordering_protocol::networking::serialize::{
     OrderingProtocolMessage, ViewTransferProtocolMessage,
 };
@@ -83,15 +85,137 @@ where
 
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
 
-    async fn bootstrap(
+    fn bootstrap(
         network_info: Arc<NI>,
         config: Self::Config,
         reconf: NetworkReconfigurationCommunication,
-    ) -> Result<Self>
+    ) -> impl Future<Output = Result<Self>> + Send
     where
         Self: Sized;
 }
 
+/// Type alias for the replica operation stub
+/// This is just to make the types less cumbersome
+pub type RPOperationStub<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    BN: ByteNetworkController,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = OperationStub<
+    NI,
+    CN,
+    BN::ConnectionController,
+    RM,
+    Service<D, P, L, VT>,
+    StateSys<S>,
+    SMRSysMsg<D>,
+>;
+
+/// Type alias for the replica protocol node
+/// This is just to make the types less cumbersome
+pub type RPProtocolNode<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub + 'static,
+    BN: ByteNetworkController,
+    RM: Serializable + 'static,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = ProtocolNode<NI, D, P, L, VT, RPOperationStub<NI, CN, BN, RM, D, P, L, VT, S>>;
+
+pub type RPAppStub<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    BN: ByteNetworkController,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = StateProtocolStub<
+    NI,
+    CN,
+    BN::ConnectionController,
+    RM,
+    Service<D, P, L, VT>,
+    StateSys<S>,
+    SMRSysMsg<D>,
+>;
+
+/// Type alias for the replica state transfer node
+pub type RPStateTransferNode<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub + 'static,
+    BN: ByteNetworkController,
+    RM: Serializable + 'static,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = StateTransferNode<S, RPAppStub<NI, CN, BN, RM, D, P, L, VT, S>>;
+
+pub type RPAppState<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub + 'static,
+    BN: ByteNetworkController,
+    RM: Serializable + 'static,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = ApplicationStub<
+    NI,
+    CN,
+    BN::ConnectionController,
+    RM,
+    Service<D, P, L, VT>,
+    StateSys<S>,
+    SMRSysMsg<D>,
+>;
+
+pub type RPAppNode<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub + 'static,
+    BN: ByteNetworkController,
+    RM: Serializable + 'static,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = AppNode<D, RPAppState<NI, CN, BN, RM, D, P, L, VT, S>>;
+
+pub type RPReconfNode<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    BN: ByteNetworkController,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = ReconfigurationStub<
+    NI,
+    CN,
+    BN::ConnectionController,
+    RM,
+    Service<D, P, L, VT>,
+    StateSys<S>,
+    SMRSysMsg<D>,
+>;
+
+#[allow(clippy::type_complexity)]
 pub struct ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
 where
     D: ApplicationData + 'static,
@@ -104,66 +228,22 @@ where
     CN: ByteNetworkStub + 'static,
     BN: ByteNetworkController,
 {
-    op_stub: Arc<
-        ProtocolNode<
-            NI,
-            D,
-            P,
-            L,
-            VT,
-            OperationStub<
-                NI,
-                CN,
-                BN::ConnectionController,
-                RM,
-                Service<D, P, L, VT>,
-                StateSys<S>,
-                SMRSysMsg<D>,
-            >,
-        >,
-    >,
-    state_transfer_stub: Arc<
-        StateTransferNode<
-            S,
-            StateProtocolStub<
-                NI,
-                CN,
-                BN::ConnectionController,
-                RM,
-                Service<D, P, L, VT>,
-                StateSys<S>,
-                SMRSysMsg<D>,
-            >,
-        >,
-    >,
-    app_stub: Arc<
-        AppNode<
-            D,
-            ApplicationStub<
-                NI,
-                CN,
-                BN::ConnectionController,
-                RM,
-                Service<D, P, L, VT>,
-                StateSys<S>,
-                SMRSysMsg<D>,
-            >,
-        >,
-    >,
-    reconf_stub: Arc<
-        ReconfigurationStub<
-            NI,
-            CN,
-            BN::ConnectionController,
-            RM,
-            Service<D, P, L, VT>,
-            StateSys<S>,
-            SMRSysMsg<D>,
-        >,
-    >,
+    op_stub: Arc<RPProtocolNode<NI, CN, BN, RM, D, P, L, VT, S>>,
+    state_transfer_stub: Arc<RPStateTransferNode<NI, CN, BN, RM, D, P, L, VT, S>>,
+    app_stub: Arc<RPAppNode<NI, CN, BN, RM, D, P, L, VT, S>>,
+    reconf_stub: Arc<RPReconfNode<NI, CN, BN, RM, D, P, L, VT, S>>,
 }
 
-type PeerCNNMan<NI, CN, RM, D, P, L, VT, S> = PeerConnectionManager<
+type PeerCNNMan<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = PeerConnectionManager<
     NI,
     CN,
     RM,
@@ -172,7 +252,14 @@ type PeerCNNMan<NI, CN, RM, D, P, L, VT, S> = PeerConnectionManager<
     SMRSysMsg<D>,
     EnumLookupTable<RM, Service<D, P, L, VT>, StateSys<S>, SMRSysMsg<D>>,
 >;
-type PeerInn<RM, D, P, L, VT, S> = PeerIncomingConnection<
+type PeerInn<
+    RM: Serializable,
+    D: ApplicationData + 'static,
+    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
+    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    VT: ViewTransferProtocolMessage + 'static,
+    S: StateTransferMessage + 'static,
+> = PeerIncomingConnection<
     RM,
     Service<D, P, L, VT>,
     StateSys<S>,
@@ -184,8 +271,9 @@ impl<CN, BN, NI, RM, D, P, L, VT, S> SMRReplicaNetworkNode<NI, RM, D, P, L, VT, 
     for ReplicaNodeWrapper<CN, BN, NI, RM, D, P, L, VT, S>
 where
     D: ApplicationData + 'static,
-    P: OrderingProtocolMessage<SMRReq<D>> + 'static,
-    L: LogTransferMessage<SMRReq<D>, P> + 'static,
+    //TODO: Fix this when the lazy_type_alias feature is stable and we can use SMRReq
+    P: OrderingProtocolMessage<RequestMessage<D::Request>> + 'static,
+    L: LogTransferMessage<RequestMessage<D::Request>, P> + 'static,
     VT: ViewTransferProtocolMessage + 'static,
     S: StateTransferMessage + 'static,
     NI: NetworkInformationProvider + 'static,
@@ -200,55 +288,35 @@ where
 {
     type Config = BN::Config;
 
-    type ProtocolNode = ProtocolNode<
-        NI,
-        D,
-        P,
-        L,
-        VT,
-        OperationStub<
-            NI,
-            CN,
-            BN::ConnectionController,
-            RM,
-            Service<D, P, L, VT>,
-            StateSys<S>,
-            SMRSysMsg<D>,
-        >,
-    >;
-    type ApplicationNode = AppNode<
-        D,
-        ApplicationStub<
-            NI,
-            CN,
-            BN::ConnectionController,
-            RM,
-            Service<D, P, L, VT>,
-            StateSys<S>,
-            SMRSysMsg<D>,
-        >,
-    >;
-    type StateTransferNode = StateTransferNode<
-        S,
-        StateProtocolStub<
-            NI,
-            CN,
-            BN::ConnectionController,
-            RM,
-            Service<D, P, L, VT>,
-            StateSys<S>,
-            SMRSysMsg<D>,
-        >,
-    >;
-    type ReconfigurationNode = ReconfigurationStub<
-        NI,
-        CN,
-        BN::ConnectionController,
-        RM,
-        Service<D, P, L, VT>,
-        StateSys<S>,
-        SMRSysMsg<D>,
-    >;
+    type ProtocolNode = RPProtocolNode<NI, CN, BN, RM, D, P, L, VT, S>;
+    type ApplicationNode = RPAppNode<NI, CN, BN, RM, D, P, L, VT, S>;
+    type StateTransferNode = RPStateTransferNode<NI, CN, BN, RM, D, P, L, VT, S>;
+    type ReconfigurationNode = RPReconfNode<NI, CN, BN, RM, D, P, L, VT, S>;
+
+    #[inline(always)]
+    fn id(&self) -> NodeId {
+        self.op_stub.0.id()
+    }
+
+    #[inline(always)]
+    fn protocol_node(&self) -> &Arc<Self::ProtocolNode> {
+        &self.op_stub
+    }
+
+    #[inline(always)]
+    fn app_node(&self) -> &Arc<Self::ApplicationNode> {
+        &self.app_stub
+    }
+
+    #[inline(always)]
+    fn state_transfer_node(&self) -> &Arc<Self::StateTransferNode> {
+        &self.state_transfer_stub
+    }
+
+    #[inline(always)]
+    fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode> {
+        &self.reconf_stub
+    }
 
     async fn bootstrap(
         network_info: Arc<NI>,
@@ -284,34 +352,9 @@ where
             reconf_stub: Arc::new(network_mngmt.init_reconf_stub()),
         })
     }
-
-    #[inline(always)]
-    fn id(&self) -> NodeId {
-        self.op_stub.0.id()
-    }
-
-    #[inline(always)]
-    fn protocol_node(&self) -> &Arc<Self::ProtocolNode> {
-        &self.op_stub
-    }
-
-    #[inline(always)]
-    fn app_node(&self) -> &Arc<Self::ApplicationNode> {
-        &self.app_stub
-    }
-
-    #[inline(always)]
-    fn state_transfer_node(&self) -> &Arc<Self::StateTransferNode> {
-        &self.state_transfer_stub
-    }
-
-    #[inline(always)]
-    fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode> {
-        &self.reconf_stub
-    }
 }
 
-pub struct ProtocolNode<NI, D, P, L, VT, NT>(NT, Arc<NI>, PhantomData<fn() -> (NI, D, P, L, VT)>)
+pub struct ProtocolNode<NI, D, P, L, VT, NT>(NT, Arc<NI>, FPhantom<(NI, D, P, L, VT)>)
 where
     D: ApplicationData + 'static,
     P: OrderingProtocolMessage<SMRReq<D>> + 'static,
@@ -319,12 +362,12 @@ where
     VT: ViewTransferProtocolMessage + 'static,
     NT: RegularNetworkStub<Service<D, P, L, VT>>;
 
-pub struct AppNode<D, NT>(pub(crate) NT, PhantomData<fn() -> D>)
+pub struct AppNode<D, NT>(pub(crate) NT, FPhantom<D>)
 where
     D: ApplicationData + 'static,
     NT: BatchedNetworkStub<SMRSysMsg<D>>;
 
-pub struct StateTransferNode<S, NT>(NT, PhantomData<fn() -> S>)
+pub struct StateTransferNode<S, NT>(NT, FPhantom<S>)
 where
     S: StateTransferMessage,
     NT: RegularNetworkStub<StateSys<S>>;

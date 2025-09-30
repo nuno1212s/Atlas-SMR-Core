@@ -1,9 +1,9 @@
+use anyhow::Context;
+use itertools::Itertools;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use itertools::Itertools;
 use tracing::{instrument, Level};
 
 use atlas_common::channel;
@@ -81,11 +81,15 @@ impl<O> RequestPreProcessing<O> for RequestPreProcessor<O> {
     }
 
     fn process_stopped_requests(&self, messages: Vec<StoredMessage<O>>) -> Result<()> {
-        self.0.send(PreProcessorMessage::StoppedRequests(messages))
+        self.0
+            .send(PreProcessorMessage::StoppedRequests(messages))
+            .context("Failed to send stopped requests to pre processor")
     }
 
     fn process_decided_batch(&self, client_rqs: Vec<ClientRqInfo>) -> Result<()> {
-        self.0.send(PreProcessorMessage::DecidedBatch(client_rqs))
+        self.0
+            .send(PreProcessorMessage::DecidedBatch(client_rqs))
+            .context("Failed to send decided batch to pre processor")
     }
 }
 
@@ -95,10 +99,12 @@ impl<O> RequestPreProcessorTimeout for RequestPreProcessor<O> {
         timeouts: Vec<ModTimeout>,
         response_channel: ChannelSyncTx<(Vec<ModTimeout>, Vec<ModTimeout>)>,
     ) -> Result<()> {
-        self.0.send(PreProcessorMessage::TimeoutsReceived(
-            timeouts,
-            response_channel,
-        ))
+        self.0
+            .send(PreProcessorMessage::TimeoutsReceived(
+                timeouts,
+                response_channel,
+            ))
+            .context("Failed to send timeouts to pre processor")
     }
 }
 
@@ -155,7 +161,9 @@ impl<O> RequestPProcessorSync<O> for RequestPreProcessor<O> {
 
 impl<O> RequestClientPreProcessing for RequestPreProcessor<O> {
     fn reset_client(&self, client_id: NodeId) -> Result<()> {
-        self.0.send(PreProcessorMessage::ResetClient(client_id))
+        self.0
+            .send(PreProcessorMessage::ResetClient(client_id))
+            .context("Failed to send reset client to pre processor")
     }
 }
 
@@ -167,7 +175,6 @@ impl<O> From<ChannelSyncTx<PreProcessorMessage<O>>> for RequestPreProcessor<O> {
 
 /// The orchestrator for all of the request pre processing.
 /// Decides which workers will get which requests and then handles the logic necessary
-
 struct RequestPreProcessingOrchestrator<WD, D, NT>
 where
     D: ApplicationData + 'static,
@@ -226,7 +233,7 @@ where
         if !messages.is_empty() {
             messages
                 .into_iter()
-                .group_by(|message| {
+                .chunk_by(|message| {
                     WD::get_worker_for_raw(
                         message.header().from(),
                         message.message().session_number(),
@@ -304,7 +311,7 @@ where
         fwd_reqs
             .into_iter()
             .map(|msg| map_smr_req(msg, request_type))
-            .group_by(|message| {
+            .chunk_by(|message| {
                 WD::get_worker_for_raw(
                     message.header().from(),
                     message.message().session_number(),
@@ -330,7 +337,7 @@ where
 
         client_rqs
             .into_iter()
-            .group_by(|rq| WD::get_worker_for_processed(rq, self.thread_count))
+            .chunk_by(|rq| WD::get_worker_for_processed(rq, self.thread_count))
             .into_iter()
             .for_each(|(worker, rqs)| {
                 self.work_comms[worker].send(PreProcessorWorkMessage::DecidedBatch(rqs.collect()))
@@ -351,7 +358,7 @@ where
 
         timeouts
             .into_iter()
-            .group_by(|timeout| {
+            .chunk_by(|timeout| {
                 if let TimeoutID::SessionBased { from, session, .. } = timeout.id() {
                     WD::get_worker_for_raw(*from, *session, self.thread_count)
                 } else {
@@ -379,7 +386,7 @@ where
 
         rqs.into_iter()
             .map(|msg| map_smr_req(msg, rq_type))
-            .group_by(|message| {
+            .chunk_by(|message| {
                 WD::get_worker_for_raw(
                     message.header().from(),
                     message.message().session_number(),
@@ -425,7 +432,7 @@ where
 
         digests
             .into_iter()
-            .group_by(|rq| WD::get_worker_for_processed(rq, self.thread_count))
+            .chunk_by(|rq| WD::get_worker_for_processed(rq, self.thread_count))
             .into_iter()
             .for_each(|(worker, rqs)| {
                 self.work_comms[worker].send(PreProcessorWorkMessage::ClonePendingRequests(
@@ -509,10 +516,10 @@ impl<O> From<OrderedRqHandles<O>> for (RequestPreProcessor<O>, BatchOutput<O>) {
     }
 }
 
-impl<O> Into<BatchOutput<O>> for UnorderedRqHandles<O> {
+impl<O> From<UnorderedRqHandles<O>> for BatchOutput<O> {
     #[instrument(skip_all)]
-    fn into(self) -> BatchOutput<O> {
-        self.0
+    fn from(value: UnorderedRqHandles<O>) -> Self {
+        value.0
     }
 }
 
