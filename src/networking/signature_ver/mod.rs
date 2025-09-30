@@ -14,7 +14,9 @@ use crate::message::{OrderableMessage, SystemMessage};
 use crate::serialize::{SMRSysMsg, Service};
 use crate::SMRReq;
 
-pub struct SigVerifier<NI, D, OP, LT, VT>(PhantomData<fn() -> (NI, D, OP, LT, VT)>);
+type CPhantom<T> = PhantomData<fn() -> T>;
+
+pub struct SigVerifier<NI, D, OP, LT, VT>(CPhantom<(NI, D, OP, LT, VT)>);
 
 impl<NI, D, P, L, VT> OrderProtocolVerificationHelper<SMRReq<D>, P, NI>
     for SigVerifier<NI, D, P, L, VT>

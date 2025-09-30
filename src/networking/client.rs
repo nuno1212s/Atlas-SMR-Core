@@ -1,10 +1,12 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use atlas_communication::byte_stub::incoming::PeerIncomingConnection;
+use atlas_communication::byte_stub::peer_conn_manager::PeerConnectionManager;
 use atlas_communication::byte_stub::{
-    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub, PeerConnectionManager,
+    ByteNetworkController, ByteNetworkControllerInit, ByteNetworkStub,
 };
 use atlas_communication::lookup_table::EnumLookupTable;
 use atlas_communication::reconfiguration::{
@@ -44,14 +46,36 @@ where
     fn reconfiguration_node(&self) -> &Arc<Self::ReconfigurationNode>;
 
     /// Bootstrap the node
-    async fn bootstrap(
+    fn bootstrap(
         network_info: Arc<NI>,
         config: Self::Config,
         reconf: NetworkReconfigurationCommunication,
-    ) -> Result<Self>
+    ) -> impl Future<Output = Result<Self>> + Send
     where
         Self: Sized;
 }
+
+/// Type alias for the client reconfiguration stub
+/// This is just to make the types less cumbersome
+/// We use NoProtocol for the ordering and state transfer protocols, as clients do not participate in them
+pub type CLIReconfigurationStub<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    BN: ByteNetworkController,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+> = ReconfigurationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
+
+/// Type alias for the client application stub
+/// This is just to make the types less cumbersome
+/// We use no protocol for the ordering and state transfer protocols, as clients do not participate in them
+pub type CLIAppStub<
+    NI: NetworkInformationProvider,
+    CN: ByteNetworkStub,
+    BN: ByteNetworkController,
+    RM: Serializable,
+    D: ApplicationData + 'static,
+> = ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
 
 /// Node wrapper for the client side node.
 /// Used to wrap the types and make this into something simple and effective to use
@@ -63,23 +87,14 @@ where
     BN: ByteNetworkController,
     D: ApplicationData + 'static,
 {
-    reconf_stub: Arc<
-        ReconfigurationStub<
-            NI,
-            CN,
-            BN::ConnectionController,
-            RM,
-            NoProtocol,
-            NoProtocol,
-            SMRSysMsg<D>,
-        >,
-    >,
-    app_stub: Arc<
-        ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>,
-    >,
+    reconf_stub: Arc<CLIReconfigurationStub<NI, CN, BN, RM, D>>,
+    app_stub: Arc<CLIAppStub<NI, CN, BN, RM, D>>,
 }
 
-type CLIPeerCNNMan<NI, CN, RM, D> = PeerConnectionManager<
+/// Type alias for the peer connection manager used in the client node
+/// This is just to make the types less cumbersome
+/// We use NoProtocol for the ordering and state transfer protocols, as clients do not participate in them
+type CLIPeerCNNMan<NI, CN, RM: Serializable, D: ApplicationData + 'static> = PeerConnectionManager<
     NI,
     CN,
     RM,
@@ -88,7 +103,11 @@ type CLIPeerCNNMan<NI, CN, RM, D> = PeerConnectionManager<
     SMRSysMsg<D>,
     EnumLookupTable<RM, NoProtocol, NoProtocol, SMRSysMsg<D>>,
 >;
-type CLIPeerInn<RM, D> = PeerIncomingConnection<
+
+/// Type alias for the peer incoming connection used in the client node
+/// This is just to make the types less cumbersome
+/// We use NoProtocol for the ordering and state transfer protocols, as clients do not participate in them
+type CLIPeerInn<RM: Serializable, D: ApplicationData + 'static> = PeerIncomingConnection<
     RM,
     NoProtocol,
     NoProtocol,
@@ -106,17 +125,9 @@ where
 {
     type Config = BN::Config;
 
-    type AppNode =
-        ApplicationStub<NI, CN, BN::ConnectionController, RM, NoProtocol, NoProtocol, SMRSysMsg<D>>;
-    type ReconfigurationNode = ReconfigurationStub<
-        NI,
-        CN,
-        BN::ConnectionController,
-        RM,
-        NoProtocol,
-        NoProtocol,
-        SMRSysMsg<D>,
-    >;
+    type AppNode = CLIAppStub<NI, CN, BN, RM, D>;
+
+    type ReconfigurationNode = CLIReconfigurationStub<NI, CN, BN, RM, D>;
 
     fn id(&self) -> NodeId {
         self.reconf_stub.id()
