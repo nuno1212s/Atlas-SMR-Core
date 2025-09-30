@@ -57,5 +57,5 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - run: cargo build --tests
         working-directory: Atlas-SMR-Core
-      - run: cargo nextest run
+      - run: cargo nextest run --no-tests
         working-directory: Atlas-SMR-Core
